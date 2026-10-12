@@ -1,55 +1,23 @@
-# Wayfarer
+# Wayfarer on ChatGPT Sites
 
-A private travel companion for two people. The first version uses a sanitized California itinerary for December 18–25, 2026, with a daily walkthrough, a schematic stop map, overnight stays, a document collection, and prompts for missing information.
+The existing Travel-Tool interface, adapted for private hosting on ChatGPT Sites. It includes the sanitized California itinerary for December 18–25, 2026, editable stops, a schematic Leaflet map, private document storage, and reviewable PDF/text imports.
 
-## Run locally or in Codex
+Sites manages sign-in and access. The current audience is the owner alone. There are no passwords, public account registration, or app-generated invitation codes. Any future companion must be admitted through the Site’s sharing settings; the app accepts at most two travelers. Admitted travelers share the trip and its documents.
 
-Requires **Node.js 24** (uses built-in SQLite) and npm.
+Trip records and document metadata use the `DB` D1 binding. Original documents use the `BUCKET` R2 binding. Hosted migrations run during publication. Local preview data is separate and is never included in the deployment.
 
-```bash
-npm ci
-npm run dev
-```
+The My trips breadcrumb opens the trip collection. Page navigation uses URL fragments, preserving the selected page on reload and supporting browser Back and Forward.
 
-The server listens on port 3000. The first visitor creates the owner account; there is no default password. Use the plus button beside the traveler avatar to create a one-use invitation for your companion. Invitations expire after 24 hours. Both accounts can edit the same trip and access its documents.
+Booking uploads are compared with existing itinerary stops using readable PDF/TXT/EML text. Matching dates plus flight numbers, routes, or property/place names can preselect a clear attachment. Ambiguous matches require a choice, and manual stop selections are preserved. Booking documents never generate duplicate stops or change a booking's reported status. Images and scanned PDFs require manual selection; no OCR or AI service is connected.
 
-```bash
-npm run build
-npm start
-```
+An explicitly labeled hotel checkout time can be saved with the matched overnight stay during upload. The original document and checkout metadata commit together with optimistic concurrency protection. Uploaded booking times take priority; absent a booking time, the two known hotels show sourced standard policies checked October 11, 2026. Conflicts with the original itinerary remain visible. Unknown properties are not guessed. Checkout deadlines and planned departure times stay separate.
 
-The production command serves the built app and API from one origin. Set `PORT` and `HOST` as needed. `DATA_DIR` defaults to `.data`; it contains the SQLite database and original uploads and must be on persistent storage. Back up that entire directory together. Set `COOKIE_SECURE=true` when serving over HTTPS. Account setup should be completed before sharing the app's address. Account recovery and email verification are not implemented in this private pilot.
+The December 21 and 22 park routes have source-linked reviews based on the NPS road network, with guarded stop reordering for the original locations. Changed locations need another review. The map remains schematic, and neither road conditions nor driving times are live. AA and Alaska flights have departure-zone-aware check-in countdowns and official airline links. Boarding passes can be stored against their flight; airline check-in is not automated and there are no background reminders.
 
-## What works
+The original December 22 ordering is corrected once on the next trip read, using an optimistic version check. The correction preserves notes, bookings, other days and custom orders, and skips changed places or conflicting times. A stored route revision prevents it from recurring after later manual changes.
 
-- All eight sample travel days, with automatic selection of today in Pacific time while the trip is active. Other dates are explicitly previews or past days. Flight departure time uses its own time zone.
-- Editable stops, local dates/times, status, location, coordinates, overnight checkout dates, details, and official-information links.
-- A locally rendered Leaflet map with numbered stops and a connected sequence. Coordinates are geographic; coastline and terrain are schematic. No API keys, external tiles, navigation routes, or travel-time claims.
-- Manually uploaded PDF, TXT, EML, PNG, JPEG, and WebP files, up to 20 MB each. File signatures are checked and file access requires membership in the trip. Files remain attached to their stop; removing a stop retains its documents in the trip collection.
-- Text extraction from text-based PDFs and plain-text files. ISO dates and December dates can produce proposed day notes within the sample trip dates. Users review titles, discard suggestions, and explicitly add them. PDF extraction is limited to the first 30 pages. Dates without a year use 2026 for this sample. Saved email files may expose encoded text and need manual review.
-- Missing-time, missing-confirmation, and unbooked-hotel prompts. A “booking reported” label means the uploaded source itinerary said it was booked; it does not independently verify a purchase. Adding a document resolves its missing-file prompt but does not validate its contents.
-- A private two-person workspace with hashed passwords, opaque HttpOnly sessions, single-use invitations, membership checks, same-origin mutation checks, request limits, and version checks to prevent silently overwriting another traveler’s edits.
+The map icon opens Google Maps with the selected day's saved stop order. Known locations use qualified names, hotel addresses and park trailhead/parking targets. Directions update immediately after edits; Google resolves new names when opened, without a separate geocoding service. Long days offer overlapping route parts within Google Maps' mobile waypoint limits. Island boat trips remain separate from mainland driving, and unfinished hotel locations remain visibly unresolved. Booking references and document contents are excluded from map URLs.
 
-## Deliberate first-version limits
+Use Node 24 and the Sites plugin setup, install, build and publishing helpers. `npm test` covers private access, persistence, conflicts, document validation and the two-person limit. `npm run test:e2e` checks the interface, PDF import and mobile layout against a running development server on port 5173.
 
-This is a single California trip workspace, not yet a general multi-trip planner. Uploads do not understand arbitrary itineraries or infer flight/hotel fields with AI. Image/scanned-PDF OCR, email integrations, live park hours, live road conditions, directions/ETAs, offline document caching, payments, public signup, and password recovery are not connected. Opening hours and conditions link to official sites for manual checking. Nothing makes or changes a booking.
-
-Sample event coordinates and map artwork are approximate. The original source file, booking reference numbers, personal traveler identities, credentials, database, and uploaded documents are excluded from Git. Initial setup seeds only sanitized trip information.
-
-## Validation
-
-```bash
-npm test
-npm run build
-npm run test:e2e
-```
-
-Browser tests require Chromium (`/usr/bin/chromium` by default; override with `CHROMIUM_PATH`). They start a separate server on port 3123 using a new temporary data directory, so your travel data is untouched. They cover setup, persistence, date navigation, PDF review/import, private file access, companion invitations, conflicting edits, bad file signatures, cross-origin rejection, and mobile layout. Unit tests cover time zones, missing details, conservative parsing, and sample consistency.
-
-```bash
-npm run format
-```
-
-## Implementation and references
-
-React + TypeScript + Vite, Express, Node SQLite, Leaflet, PDF.js, and Lucide. No paid services or secrets are required. See [the product notes](docs/product-notes.md) for scope, research, and next steps. All visual artwork is original; dependencies retain their respective licenses.
+The app starts from a sanitized sample only. It does not book travel, verify confirmations, retrieve live conditions or perform OCR. Existing dependencies retain their licenses. Recovered original source: https://github.com/himeshFHF/Travel-Tool.

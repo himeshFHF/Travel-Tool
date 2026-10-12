@@ -1,0 +1,14 @@
+.hotel-checkout { margin: 18px 0; padding: 17px 18px; border: 1px solid #dce4d8; border-radius: 12px; background: #f6f8f2; color: #244c3e; }
+.hotel-checkout-heading { display: flex; flex-direction: column; gap: 7px; }
+.hotel-checkout-heading > span { font-size: 10px; letter-spacing: .12em; font-weight: 650; }
+.hotel-checkout-heading > strong { font-size: 17px; line-height: 1.4; }
+.hotel-checkout .hotel-checkout-source { margin: 8px 0 0; font-size: 12px; line-height: 1.65; color: #52634e; overflow-wrap: anywhere; }
+.hotel-checkout a { color: #244c3e; text-decoration: underline; text-underline-offset: 3px; }
+.hotel-checkout .hotel-checkout-conflict { margin: 12px 0 0; border-left: 3px solid #af945c; padding-left: 11px; font-size: 12px; line-height: 1.65; color: #73561f; }
+.hotel-checkout .hotel-checkout-note { margin: 12px 0 0; font-size: 11px; line-height: 1.65; color: #52634e; }
+.hotel-checkout-evidence { font-size: 12px; line-height: 1.65; margin-top: 12px; }
+.hotel-checkout-evidence summary { cursor: pointer; }
+.hotel-checkout-evidence p { margin: 6px 0 0; overflow-wrap: anywhere; }
+.hotel-stay-documents { margin-top: 15px; padding-top: 12px; border-top: 1px solid #dce4d8; font-size: 12px; line-height: 1.65; }
+.hotel-stay-documents p { margin: 4px 0 0; color: #52634e; }
+.hotel-stay-documents ul { margin: 7px 0 0; padding-left: 17px; overflow-wrap: anywhere; }

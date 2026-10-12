@@ -1,3 +1,12 @@
+import { documentsForStop } from "./document-links";
+
+export type Checkout = {
+  time: string;
+  source: "booking" | "manual";
+  documentId?: string;
+  documentName?: string;
+  evidence?: string;
+};
 export type Stop = {
   id: string;
   date: string;
@@ -12,8 +21,18 @@ export type Stop = {
   url?: string;
   zone?: string;
   checkoutDate?: string;
+  checkout?: Checkout;
+  staySource?: {
+    start: string;
+    end: string;
+    source: "booking";
+    documentId: string;
+    documentName: string;
+    evidence: string;
+  };
 };
 export type Trip = {
+  routeRevision?: 1;
   title: string;
   start: string;
   end: string;
@@ -96,7 +115,7 @@ export const missingDetails = (trip: Trip, docs: Document[]) =>
           },
         ]
       : []),
-    ...(e.status === "reported" && !docs.some((d) => d.eventId === e.id)
+    ...(e.status === "reported" && !documentsForStop(e,docs,trip.events).length
       ? [
           {
             id: e.id + "doc",

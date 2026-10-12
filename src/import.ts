@@ -1,19 +1,27 @@
 import type { Stop } from "./model";
+import { parseEmail } from "./email";
 // Deliberately conservative: dated headings become reviewable notes, never bookings.
-export function parseItinerary(text: string, year = 2026): Partial<Stop>[] {
+export function parseItinerary(text: string, year = 2026, range?: {start:string;end:string}): Partial<Stop>[] {
+  const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const validDate = (date:string) => !Number.isNaN(Date.parse(date)) && new Date(date+"T12:00:00Z").toISOString().slice(0,10) === date;
   const lines = text.replace(/\r/g, "").split("\n");
   const out: Partial<Stop>[] = [];
   let current: Partial<Stop> | undefined;
   for (const line of lines) {
     const match = line.match(
-      /(?:^|\b)(?:(\d{4})-(\d{2})-(\d{2})|(?:December|Dec\.?)\s+(\d{1,2})(?:[a-z]{2})?\b)/i,
+      /(?:^|\b)(?:(\d{4})-(\d{2})-(\d{2})|((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?)\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4}))?)/i,
     );
     if (match) {
-      const date = match[1]
+      let date = match[1]
         ? `${match[1]}-${match[2]}-${match[3]}`
-        : `${year}-12-${String(match[4]).padStart(2, "0")}`;
-      if (!/^\d{4}-12-(?:0[1-9]|[12]\d|3[01])$/.test(date) && !match[1])
-        continue;
+        : `${match[6] || year}-${String(months.indexOf(match[4].slice(0,3).toLowerCase())+1).padStart(2,"0")}-${String(match[5]).padStart(2, "0")}`;
+      if (range && !match[1] && !match[6]) {
+        const possibilities = [...new Set([range.start.slice(0,4),range.end.slice(0,4)])]
+          .map(y=> y+date.slice(4)).filter(d=>validDate(d)&&d>=range.start&&d<=range.end);
+        if (possibilities.length !== 1) {current=undefined;continue;}
+        date=possibilities[0];
+      }
+      if (!validDate(date) || (range && (date < range.start || date > range.end))) {current=undefined;continue;}
       current = {
         id: crypto.randomUUID(),
         date,
@@ -32,13 +40,14 @@ export function parseItinerary(text: string, year = 2026): Partial<Stop>[] {
   return out.slice(0, 30);
 }
 export async function extractText(file: File): Promise<string> {
-  if (/\.(txt|eml)$/i.test(file.name)) return file.text();
+  if (/\.eml$/i.test(file.name)) {
+    const email = await parseEmail(await file.arrayBuffer());
+    return `${email.subject}\n${email.text}`;
+  }
+  if (/\.txt$/i.test(file.name)) return file.text();
   if (/\.pdf$/i.test(file.name)) {
     const pdfjs = await import("pdfjs-dist");
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
-      import.meta.url,
-    ).toString();
+    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
     const task = pdfjs.getDocument({
       data: new Uint8Array(await file.arrayBuffer()),
     });

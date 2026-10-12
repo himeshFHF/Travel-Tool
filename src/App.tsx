@@ -1,3 +1,4 @@
+"use client";
 import {
   useState,
   useEffect,
@@ -49,16 +50,29 @@ import {
   type Trip,
   type Document,
 } from "./model";
-import { extractText, parseItinerary } from "./import";
+import { checkoutStayForReminder } from "./hotel-checkout";
+import HotelCheckout from "./components/HotelCheckout";
+import { documentsForDay, documentsForStop, hotelStayForStop } from "./document-links";
+import FlightCheckIn from "./components/FlightCheckIn";
+import RouteReview from "./components/RouteReview";
+import DayDirections from "./components/DayDirections";
+import { applyReviewedOrder } from "./route-review";
+import NewTripModal from "./components/NewTripModal";
+import UploadModal from "./components/UploadModal";
 
 type User = { name: string; email: string };
 type Snapshot = {
+  id: string;
   trip: Trip;
   version: number;
   documents: Document[];
   members: { name: string }[];
 };
-async function api(url: string, options: RequestInit = {}) {
+type TripSummary = {id:string;title:string;start:string;end:string;stopCount:number;documentCount:number};
+const tripLabel = (id:string,title:string) => id==="california" && title==="California, together." ? "California escape" : title;
+const readTripId = () => new URLSearchParams(window.location.hash.split("?")[1] || "").get("trip") || "california";
+const pageHash = (page:string,tripId:string) => `#${page}${tripId==="california" ? "" : `?trip=${encodeURIComponent(tripId)}`}`;
+async function api<T = { version: number }>(url: string, options: RequestInit = {}): Promise<T> {
   const r = await fetch("/api" + url, {
     ...options,
     headers:
@@ -66,7 +80,7 @@ async function api(url: string, options: RequestInit = {}) {
         ? options.headers
         : { "Content-Type": "application/json", ...options.headers },
   });
-  const data = await r.json();
+  const data = await r.json() as T & { error?: string };
   if (!r.ok) throw new Error(data.error || "Request failed.");
   return data;
 }
@@ -116,173 +130,6 @@ function Modal({
       </header>
       {children}
     </dialog>
-  );
-}
-function Auth({
-  needsSetup,
-  onLogin,
-}: {
-  needsSetup: boolean;
-  onLogin: (u: User) => void;
-}) {
-  const [mode, setMode] = useState(needsSetup ? "setup" : "login");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setBusy(true);
-    setError("");
-    const data = Object.fromEntries(new FormData(e.currentTarget));
-    try {
-      const r = await api("/auth/" + mode, {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
-      onLogin(r.user);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <div className="auth-screen">
-      <div className="auth-story">
-        <a className="brand" href="/">
-          <span className="brand-symbol">w</span>wayfarer
-          <span className="brand-dot">.</span>
-        </a>
-        <div>
-          <div className="eyebrow light">LESS PLANNING. MORE BEING THERE.</div>
-          <h1>
-            Your next chapter
-            <br />
-            starts here.
-          </h1>
-          <p>
-            Every stop, every ticket, every little detail.
-            <br />
-            One beautiful place for your journey together.
-          </p>
-        </div>
-        <div className="auth-caption">
-          <Mountain size={22} />
-          <span>
-            CALIFORNIA, DECEMBER 2026
-            <br />
-            <small>A little city. A little desert. A lot to remember.</small>
-          </span>
-        </div>
-      </div>
-      <div className="auth-form">
-        <div className="auth-form-inner">
-          <span className="pill">
-            <LockKeyhole size={13} /> Your private travel space
-          </span>
-          <h2>
-            {mode === "setup"
-              ? "Let the adventure begin."
-              : mode === "join"
-                ? "Better together."
-                : "Welcome back."}
-          </h2>
-          <p>
-            {mode === "setup"
-              ? "Create your account to explore your California trip. Invite your companion whenever you’re ready."
-              : mode === "join"
-                ? "Use the invitation from your travel companion."
-                : "Your plans are right where you left them."}
-          </p>
-          <form onSubmit={submit}>
-            {mode !== "login" && (
-              <label>
-                Your name
-                <input
-                  name="name"
-                  autoComplete="name"
-                  required
-                  maxLength={70}
-                  placeholder="What should we call you?"
-                />
-              </label>
-            )}
-            <label>
-              Email
-              <input
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                placeholder="you@example.com"
-              />
-            </label>
-            <label>
-              Password
-              <input
-                name="password"
-                type="password"
-                autoComplete={
-                  mode === "login" ? "current-password" : "new-password"
-                }
-                required
-                minLength={mode === "login" ? 1 : 10}
-                maxLength={128}
-                placeholder={
-                  mode === "login" ? "Your password" : "At least 10 characters"
-                }
-              />
-            </label>
-            {mode === "join" && (
-              <label>
-                Invitation code
-                <input
-                  name="code"
-                  required
-                  placeholder="Paste your companion’s code"
-                />
-              </label>
-            )}
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-            <button className="primary full" disabled={busy}>
-              {busy ? (
-                <Loader2 className="spin" size={18} />
-              ) : (
-                <>
-                  {" "}
-                  {mode === "login"
-                    ? "Open my trip"
-                    : mode === "setup"
-                      ? "Create my travel space"
-                      : "Join the adventure"}
-                  <ArrowRight size={18} />
-                </>
-              )}
-            </button>
-          </form>
-          {!needsSetup && (
-            <button
-              className="text-btn auth-switch"
-              onClick={() => {
-                setMode(mode === "join" ? "login" : "join");
-                setError("");
-              }}
-            >
-              {mode === "join"
-                ? "Already have an account? Sign in"
-                : "Have an invitation? Join your companion"}
-            </button>
-          )}
-          <div className="auth-foot">
-            <LockKeyhole size={14} /> Private to you and your companion. No
-            public signups.
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 function Editor({
@@ -349,7 +196,7 @@ function Editor({
           </label>
         </div>
         {value.type === "stay" && (
-          <label>
+          <div className="form-row"><label>
             Checkout date (for overnight stays)
             <input
               type="date"
@@ -361,7 +208,10 @@ function Editor({
                 }))
               }
             />
-          </label>
+          </label>{value.checkoutDate && <label>
+            Checkout deadline (local time)
+            <input type="time" value={value.checkout?.time || ""} onChange={(e)=>setValue(v=>({...v,checkout:e.target.value ? {time:e.target.value,source:"manual"} : undefined}))} />
+          </label>}</div>
         )}
         <label>
           Time zone
@@ -508,292 +358,60 @@ function Editor({
     </Modal>
   );
 }
-function UploadModal({
-  events,
-  initial,
-  onClose,
-  onUploaded,
-  onImport,
-}: {
-  events: Stop[];
-  initial?: string;
-  onClose: () => void;
-  onUploaded: () => Promise<void>;
-  onImport: (stops: Stop[]) => Promise<void>;
-}) {
-  const [file, setFile] = useState<File | null>(null);
-  const [eventId, setEventId] = useState(initial || "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [text, setText] = useState("");
-  const [proposals, setProposals] = useState<Stop[]>([]);
-  const [saved, setSaved] = useState(false);
-  const [drag, setDrag] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
-  async function upload() {
-    if (!file) return;
-    setBusy(true);
-    setError("");
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("eventId", eventId);
-      await api("/documents", { method: "POST", body: fd });
-      setSaved(true);
-      await onUploaded();
-      try {
-        const t = await extractText(file);
-        setText(t);
-        setProposals(
-          parseItinerary(t).filter(
-            (s) => s.date! >= "2026-12-18" && s.date! <= "2026-12-25",
-          ) as Stop[],
-        );
-      } catch {
-        setError(
-          "Your document is safely saved. Text extraction was unavailable; add the details manually.",
-        );
-      }
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  const choose = (f: File | undefined) => {
-    if (f) {
-      if (f.size > 20 * 1024 * 1024) {
-        setError("Choose a file smaller than 20 MB.");
-        return;
-      }
-      setFile(f);
-      setError("");
-    }
-  };
-  return (
-    <Modal
-      title={saved ? "Document tucked away" : "Bring your plans together"}
-      onClose={onClose}
-      wide
-    >
-      <div className="upload-body">
-        {!saved ? (
-          <>
-            <p className="muted">
-              Tickets, confirmations, or your whole itinerary. Keep them close.
-            </p>
-            <div
-              className={"dropzone " + (drag ? "drag" : "")}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDrag(true);
-              }}
-              onDragLeave={() => setDrag(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDrag(false);
-                choose(e.dataTransfer.files[0]);
-              }}
-            >
-              <div className="upload-orb">
-                <Upload size={25} />
-              </div>
-              <h3>{file ? file.name : "Drop your document here"}</h3>
-              <p>
-                or{" "}
-                <button
-                  className="text-btn"
-                  onClick={() => fileInput.current?.click()}
-                >
-                  browse files
-                </button>
-              </p>
-              <small>PDF, TXT, EML, PNG, JPG or WebP · up to 20 MB</small>
-              <input
-                ref={fileInput}
-                type="file"
-                hidden
-                accept=".pdf,.txt,.eml,.png,.jpg,.jpeg,.webp"
-                onChange={(e) => choose(e.target.files?.[0])}
-              />
-            </div>
-            <label>
-              Attach to a stop
-              <select
-                value={eventId}
-                onChange={(e) => setEventId(e.target.value)}
-              >
-                <option value="">Whole trip / itinerary</option>
-                {events.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {dateLabel(e.date)} · {e.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="info-note">
-              <LockKeyhole size={17} />
-              <span>
-                Only your two traveler accounts can access these files.
-                Originals are kept in your private document collection.
-              </span>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="success-banner">
-              <CheckCircle2 size={22} />
-              <span>
-                <strong>{file?.name}</strong>
-                <br />
-                Original saved. Your document is ready to open.
-              </span>
-            </div>
-            {proposals.length > 0 ? (
-              <>
-                <h3>Review extracted day notes</h3>
-                <p className="muted">
-                  We found dated sections. These are suggested notes, not
-                  verified bookings. Edit titles or remove duplicates before
-                  adding them.
-                </p>
-                <div className="proposal-list">
-                  {proposals.map((s, i) => (
-                    <div className="proposal" key={s.id}>
-                      <span>{dateLabel(s.date)}</span>
-                      <input
-                        aria-label={`Imported title ${i + 1}`}
-                        value={s.title}
-                        onChange={(e) =>
-                          setProposals((p) =>
-                            p.map((x) =>
-                              x.id === s.id
-                                ? { ...x, title: e.target.value }
-                                : x,
-                            ),
-                          )
-                        }
-                      />
-                      <button
-                        aria-label="Discard suggestion"
-                        className="icon-btn"
-                        onClick={() =>
-                          setProposals((p) => p.filter((x) => x.id !== s.id))
-                        }
-                      >
-                        <X size={17} />
-                      </button>
-                      <details>
-                        <summary>Extracted notes</summary>
-                        <pre>{s.notes}</pre>
-                      </details>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="muted">
-                {text
-                  ? "No supported dated sections found. Your original is saved; add or edit a stop to fill in its details."
-                  : "This file needs a manual review. Image and scanned-ticket recognition is not connected yet; your original is ready to use."}
-              </p>
-            )}
-            {text && (
-              <details className="extracted">
-                <summary>View extracted text</summary>
-                <pre>{text.slice(0, 30000)}</pre>
-              </details>
-            )}
-          </>
-        )}
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-        <footer>
-          {saved ? (
-            <>
-              <button className="secondary" onClick={onClose}>
-                Done
-              </button>
-              {proposals.length > 0 && (
-                <button
-                  className="primary"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      await onImport(proposals);
-                      onClose();
-                    } catch (e) {
-                      setError((e as Error).message);
-                      setBusy(false);
-                    }
-                  }}
-                >
-                  Add {proposals.length} reviewed notes
-                  <Plus size={16} />
-                </button>
-              )}
-            </>
-          ) : (
-            <button
-              disabled={!file || busy}
-              className="primary"
-              onClick={upload}
-            >
-              {busy ? (
-                <>
-                  <Loader2 className="spin" size={16} />
-                  Saving & reading…
-                </>
-              ) : (
-                <>
-                  Save document
-                  <ArrowRight size={17} />
-                </>
-              )}
-            </button>
-          )}
-        </footer>
-      </div>
-    </Modal>
-  );
-}
-export default function App() {
-  const [auth, setAuth] = useState<{
-    user: User | null;
-    needsSetup: boolean;
-  } | null>(null);
+export default function App({ user }: { user: User }) {
+
   const [state, setState] = useState<Snapshot | null>(null);
   const [error, setError] = useState("");
-  const [page, setPage] = useState("day");
-  const [date, setDate] = useState(() => {
-    const today = localDate();
-    return today >= "2026-12-18" && today <= "2026-12-25"
-      ? today
-      : "2026-12-18";
-  });
+  const readPage = () => {
+    const value = window.location.hash.slice(1).split("?")[0];
+    return ["trips", "day", "overview", "documents", "details"].includes(value) ? value : "day";
+  };
+  const [page, setPage] = useState(readPage);
+  const [tripId, setTripId] = useState(readTripId);
+  const [tripList, setTripList] = useState<TripSummary[]>([]);
+  const [newTrip, setNewTrip] = useState(false);
+  const [date, setDate] = useState("");
+  const loadSequence = useRef(0);
   const [now, setNow] = useState(new Date());
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Stop | null>(null);
   const [editing, setEditing] = useState<Stop | null>(null);
   const [upload, setUpload] = useState<{ eventId?: string } | null>(null);
-  const [invite, setInvite] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [menu, setMenu] = useState(false);
   const [toast, setToast] = useState("");
+  const [savingRoute, setSavingRoute] = useState(false);
   const [confirmDoc, setConfirmDoc] = useState<string | null>(null);
-  const refresh = async () => setState(await api("/trip"));
+  const tripQuery = `?tripId=${encodeURIComponent(tripId)}`;
+  const documentUrl = (id:string) => `/api/documents/${encodeURIComponent(id)}${tripQuery}`;
+  const refresh = async () => {
+    const sequence=++loadSequence.current;
+    const [snapshot,collection] = await Promise.all([api<Snapshot>("/trip"+tripQuery),api<{trips:TripSummary[]}>("/trips")]);
+    if(sequence!==loadSequence.current || readTripId()!==tripId) return;
+    setState(snapshot); setTripList(collection.trips);
+    setDate(current=>current>=snapshot.trip.start && current<=snapshot.trip.end ? current : localDate()>=snapshot.trip.start && localDate()<=snapshot.trip.end ? localDate() : snapshot.trip.start);
+  };
   useEffect(() => {
-    api("/auth")
-      .then(setAuth)
-      .catch((e) => setError(e.message));
+    let active=true;
+    setState(null); setError(""); setDate("");
+    refresh().catch((e)=>{if(active)setError(e.message);});
+    return ()=>{active=false;};
+  },[tripId]);
+  useEffect(() => {
+    const syncPage = () => {
+      setPage(readPage());
+      setTripId(readTripId());
+      setMenu(false);
+      setDetail(null);
+      setEditing(null);
+      setUpload(null);
+      setConfirmDoc(null);
+      setNewTrip(false);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("hashchange", syncPage);
+    return () => window.removeEventListener("hashchange", syncPage);
   }, []);
-  useEffect(() => {
-    if (auth?.user) refresh().catch((e) => setError(e.message));
-  }, [auth?.user]);
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
@@ -805,35 +423,15 @@ export default function App() {
   }, [toast]);
   async function saveTrip(trip: Trip) {
     if (!state) return;
-    const r = await api("/trip", {
+    const r = await api("/trip"+tripQuery, {
       method: "PUT",
       body: JSON.stringify({ trip, version: state.version }),
     });
     setState({ ...state, trip, version: r.version });
+    setTripList(items=>items.map(item=>item.id===tripId ? {...item,title:trip.title,start:trip.start,end:trip.end,stopCount:trip.events.length} : item));
     setToast("Your plans are saved.");
   }
-  if (!auth)
-    return (
-      <div className="loading">
-        <span className="brand-symbol">w</span>
-        {error ? (
-          <>
-            <p role="alert">{error}</p>
-            <button onClick={() => location.reload()}>Try again</button>
-          </>
-        ) : (
-          <p>Getting your journey ready…</p>
-        )}
-      </div>
-    );
-  if (!auth.user)
-    return (
-      <Auth
-        needsSetup={auth.needsSetup}
-        onLogin={(user) => setAuth({ needsSetup: false, user })}
-      />
-    );
-  if (!state)
+  if (!state || state.id!==tripId)
     return (
       <div className="loading">
         <Loader2 className="spin" />
@@ -848,6 +446,9 @@ export default function App() {
       </div>
     );
   const { trip, documents, members } = state;
+  const isCalifornia = tripId==="california";
+  const name = tripLabel(tripId,trip.title);
+  const dateRange = `${dateLabel(trip.start,{month:"short",day:"numeric",year:"numeric"})} – ${dateLabel(trip.end,{month:"short",day:"numeric",year:"numeric"})}`;
   const tripDates = Array.from(
     {
       length:
@@ -857,6 +458,10 @@ export default function App() {
       new Date(Date.parse(trip.start) + i * 864e5).toISOString().slice(0, 10),
   );
   const stops = trip.events.filter((e) => e.date === date);
+  const dayDocuments = documentsForDay(date,documents,trip.events);
+  const detailDocuments = detail ? documentsForStop(detail,documents,trip.events) : [];
+  const detailCheckoutStay = detail ? checkoutStayForReminder(detail, trip.events) : undefined;
+  const detailTime = detailCheckoutStay?.checkout?.time || detail?.time || "";
   const needs = missingDetails(trip, documents);
   const today = localDate(now);
   const isToday = date === today;
@@ -893,6 +498,7 @@ export default function App() {
     "San Diego → Dallas",
   ];
   const navigate = (p: string) => {
+    window.location.hash = pageHash(p,tripId);
     setPage(p);
     setMenu(false);
   };
@@ -916,12 +522,16 @@ export default function App() {
   return (
     <div className="app">
       <aside className={"sidebar " + (menu ? "open" : "")}>
-        <a className="brand" href="/">
+        <a className="brand" href="#trips">
           <span className="brand-symbol">w</span>wayfarer
           <span className="brand-dot">.</span>
         </a>
         <div className="workspace-label">YOUR TRAVEL SPACE</div>
         <nav>
+          <button className={page === "trips" ? "active" : ""} onClick={() => navigate("trips")}>
+            <FolderOpen size={19} />My trips
+          </button>
+          {page !== "trips" && <>
           <button
             className={page === "day" ? "active" : ""}
             onClick={() => navigate("day")}
@@ -951,62 +561,37 @@ export default function App() {
             <CheckCircle2 size={19} />
             To sort out<span className="nav-count">{needs.length}</span>
           </button>
+          </>}
         </nav>
-        <div className="sidebar-trip">
+        {page !== "trips" && <div className="sidebar-trip">
           <div className="tiny-landscape">
             <Mountain size={50} />
-            <span>THE GOLDEN STATE</span>
+            <span>{isCalifornia ? "THE GOLDEN STATE" : "YOUR NEXT CHAPTER"}</span>
           </div>
-          <strong>California escape</strong>
-          <span>Dec 18 – 25, 2026</span>
+          <strong>{name}</strong>
+          <span>{dateRange}</span>
           <div className="travelers">
             <div className="avatar">{members[0]?.name[0]?.toUpperCase()}</div>
             {members[1] ? (
               <div className="avatar second">
                 {members[1].name[0].toUpperCase()}
               </div>
-            ) : (
-              <button
-                className="avatar invite-avatar"
-                aria-label="Invite companion"
-                onClick={async () => {
-                  try {
-                    const r = await api("/invite", { method: "POST" });
-                    setInvite(r.code);
-                  } catch (e) {
-                    setError((e as Error).message);
-                  }
-                }}
-              >
-                <Plus size={13} />
-              </button>
-            )}
+            ) : null}
             <small>
-              {members.length === 2 ? "Better together" : "Room for one more"}
+              {members.length === 2 ? "Better together" : "Private to you"}
             </small>
           </div>
-        </div>
+        </div>}
         <div className="sidebar-bottom">
           <div className="account">
             <span className="avatar account-avatar">
-              {auth.user.name[0].toUpperCase()}
+              {user.name[0].toUpperCase()}
             </span>
             <span>
-              <strong>{auth.user.name}</strong>
+              <strong>{user.name}</strong>
               <small>Personal workspace</small>
             </span>
-            <button
-              className="icon-btn"
-              title="Sign out"
-              aria-label="Sign out"
-              onClick={async () => {
-                await api("/auth/logout", { method: "POST" });
-                setAuth({ user: null, needsSetup: false });
-                setState(null);
-              }}
-            >
-              <LogOut size={17} />
-            </button>
+            <a className="icon-btn" title="Sign out" aria-label="Sign out" href="/signout-with-chatgpt?return_to=%2F" target="_top"><LogOut size={17} /></a>
           </div>
         </div>
       </aside>
@@ -1019,11 +604,14 @@ export default function App() {
           >
             <Menu />
           </button>
-          <div className="breadcrumb">
-            My trips
-            <ChevronRight size={14} />
-            <span>California escape</span>
-          </div>
+          <nav className="breadcrumb" aria-label="Breadcrumb">
+            {page === "trips" ? <span aria-current="page">My trips</span> : <>
+              <a href={pageHash("trips",tripId)}>My trips</a>
+              <ChevronRight size={14} />
+              <span>{name}</span>
+            </>}
+          </nav>
+          {page !== "trips" &&
           <div className="top-actions">
             <span className="private-label">
               <LockKeyhole size={13} />
@@ -1033,7 +621,7 @@ export default function App() {
               <Upload size={15} />
               Add documents
             </button>
-          </div>
+          </div>}
         </header>
         <div className="content">
           {error && (
@@ -1044,6 +632,21 @@ export default function App() {
               </button>
             </div>
           )}
+          {page === "trips" && <>
+            <div className="trips-heading"><PageTitle eyebrow="YOUR NEXT CHAPTER" title="My trips" subtitle="Your plans, documents, and little details. All in one place." /><button className="primary" onClick={()=>setNewTrip(true)}><Plus size={18} />New trip</button></div>
+            <div className="trips-grid">
+              {tripList.map(item=><a key={item.id} className="trip-collection-card" href={pageHash("day",item.id)} aria-label={`Open ${tripLabel(item.id,item.title)}`}>
+                <div className="trip-collection-art"><Sun size={48} /><Mountain size={110} /><span>{item.id==="california" ? "THE GOLDEN STATE" : "A NEW ADVENTURE"}</span></div>
+                <div className="trip-collection-body">
+                  <span className="eyebrow">{today<item.start ? "UPCOMING TRIP" : today>item.end ? "PAST TRIP" : "ON YOUR JOURNEY"}</span>
+                  <h2>{tripLabel(item.id,item.title)}</h2>
+                  <p><CalendarDays size={15} />{dateLabel(item.start,{month:"short",day:"numeric",year:"numeric"})} – {dateLabel(item.end, {month:"short",day:"numeric",year:"numeric"})}</p>
+                  <div className="trip-collection-details"><span>{Math.round((Date.parse(item.end)-Date.parse(item.start))/864e5)+1} days</span><span>{item.stopCount} stops</span><span>{item.documentCount} documents</span></div>
+                  <div className="trip-collection-open"><span>Open trip</span><ArrowUpRight size={20} /></div>
+                </div>
+              </a>)}
+            </div>
+          </>}
           {page === "day" && (
             <>
               <section className="hero">
@@ -1057,20 +660,18 @@ export default function App() {
                         : "YOU’RE RIGHT WHERE YOU SHOULD BE"}
                   </div>
                   <h1>
-                    California,
-                    <br />
-                    <em>together.</em>
+                    {isCalifornia && trip.title==="California, together." ? <>California,<br /><em>together.</em></> : trip.title}
                   </h1>
-                  <p>A little city. A little desert. A lot to remember.</p>
+                  <p>{isCalifornia ? "A little city. A little desert. A lot to remember." : "Your places, your plans. A new journey begins here."}</p>
                   <div className="hero-meta">
                     <span>
                       <CalendarDays size={15} />
-                      Dec 18 – 25, 2026
+                      {dateRange}
                     </span>
                     <span>
-                      <Users size={15} />2 travelers
+                      <Users size={15} />{members.length} {members.length===1 ? "traveler" : "travelers"}
                     </span>
-                    <span>8 days, your way</span>
+                    <span>{tripDates.length} {tripDates.length===1 ? "day" : "days"}, your way</span>
                   </div>
                 </div>
                 <div className="hero-art" aria-hidden="true">
@@ -1124,14 +725,14 @@ export default function App() {
                     />
                   </svg>
                   <div className="hero-stamp">
-                    <Navigation size={14} /> WEST COAST, BEST COMPANY
+                    <Navigation size={14} /> {isCalifornia ? "WEST COAST, BEST COMPANY" : "MAKE ROOM FOR THE JOURNEY"}
                   </div>
                 </div>
               </section>
               <div className="date-strip">
                 <div className="date-intro">
-                  <span>DECEMBER</span>
-                  <strong>2026</strong>
+                  <span>{dateLabel(date,{month:"long"}).toUpperCase()}</span>
+                  <strong>{date.slice(0,4)}</strong>
                 </div>
                 {tripDates.map((d, i) => (
                   <button
@@ -1143,14 +744,14 @@ export default function App() {
                     }}
                     aria-pressed={date === d}
                   >
-                    <span>{dateLabel(d, { weekday: "short" })}</span>
+                    <span>{trip.start.slice(0,7)!==trip.end.slice(0,7) ? dateLabel(d,{month:"short",weekday:"short"}) : dateLabel(d, { weekday: "short" })}</span>
                     <strong>{Number(d.slice(-2))}</strong>
                     <small>
-                      {i === 0 || i === 7 ? (
+                      {trip.events.some(stop=>stop.date===d && stop.type==="flight") ? (
                         <Plane size={12} />
-                      ) : i === 1 ? (
+                      ) : isCalifornia && i === 1 ? (
                         <Navigation size={12} />
-                      ) : i === 3 || i === 4 ? (
+                      ) : isCalifornia && (i === 3 || i === 4) ? (
                         <Mountain size={12} />
                       ) : (
                         <span className="date-dot" />
@@ -1163,9 +764,9 @@ export default function App() {
                 <div>
                   <div className="eyebrow">
                     DAY {dayIndex + 1} <span className="eyebrow-sep">/</span>{" "}
-                    {dayPlaces[dayIndex]?.toUpperCase()}
+                    {((isCalifornia ? dayPlaces[dayIndex] : stops[0]?.location) || "YOUR PLANS").toUpperCase()}
                   </div>
-                  <h2>{dayTitles[dayIndex] || dateLabel(date)}</h2>
+                  <h2>{isCalifornia ? dayTitles[dayIndex] || dateLabel(date) : stops.length ? "Your day, your way." : "A day full of possibility."}</h2>
                   <p>
                     {isToday ? (
                       <>
@@ -1217,7 +818,9 @@ export default function App() {
                   )}
                   {stops.map((stop, index) => {
                     const Icon = icons[stop.type];
-                    const docs = documents.filter((d) => d.eventId === stop.id);
+                    const docs = documentsForStop(stop,documents,trip.events);
+                    const checkingOut = checkoutStayForReminder(stop,trip.events);
+                    const displayTime = checkingOut?.checkout?.time || stop.time;
                     return (
                       <article
                         id={"stop-" + stop.id}
@@ -1244,8 +847,8 @@ export default function App() {
                               <Icon size={18} />
                             </span>
                             <span className="stop-time">
-                              {timeLabel(stop.time)}
-                              {stop.time && (
+                              {checkingOut ? "Checkout by " : ""}{timeLabel(displayTime)}
+                              {displayTime && (
                                 <small>
                                   {stop.zone === "America/Chicago"
                                     ? "CT"
@@ -1275,8 +878,7 @@ export default function App() {
                             {stop.location || "Location to add"}
                           </p>
                           <p className="stop-summary">
-                            {stop.notes.split(". ")[0]}
-                            {stop.notes.includes(". ") ? "." : ""}
+                            {checkingOut?.checkout ? "Checkout time from your saved stay details. Leave earlier if your day’s route needs it." : <>{stop.notes.split(". ")[0]}{stop.notes.includes(". ") ? "." : ""}</>}
                           </p>
                           <div className="stop-actions">
                             <button
@@ -1289,7 +891,7 @@ export default function App() {
                             {docs.length ? (
                               <a
                                 className="ticket-link"
-                                href={"/api/documents/" + docs[0].id}
+                              href={documentUrl(docs[0].id)}
                                 target="_blank"
                                 rel="noreferrer"
                               >
@@ -1320,9 +922,7 @@ export default function App() {
                   <section className="map-card">
                     <div className="section-heading">
                       <h3>A sense of direction</h3>
-                      <span className="round-icon">
-                        <MapPin size={16} />
-                      </span>
+                      <DayDirections trip={trip} date={date} variant="icon" />
                     </div>
                     <RouteMap
                       stops={stops}
@@ -1348,7 +948,19 @@ export default function App() {
                           </button>
                         ))}
                     </div>
+                    <DayDirections trip={trip} date={date} />
                   </section>
+                  <RouteReview trip={trip} date={date} saving={savingRoute} onApply={async (routeDate)=>{
+                    setSavingRoute(true);
+                    try { await saveTrip(applyReviewedOrder(trip, routeDate)); }
+                    catch (e) { setError((e as Error).message); }
+                    finally { setSavingRoute(false); }
+                  }} />
+                  {dayDocuments.length > 0 && <section className="day-documents" aria-label="Documents for this day">
+                    <div className="section-heading"><h3>Documents for this day</h3><FileText size={18} /></div>
+                    <p>Tickets and bookings for this day, including your hotel stay.</p>
+                    {dayDocuments.map(document=><a key={document.id} href={documentUrl(document.id)} target="_blank" rel="noreferrer"><FileText size={16} /><span>{document.name}</span><ArrowUpRight size={15}/></a>)}
+                  </section>}
                   {tonight && (
                     <section className="stay-card">
                       <div className="eyebrow">
@@ -1362,6 +974,7 @@ export default function App() {
                           : "Still to book"}{" "}
                         · Checkout {dateLabel(tonight.checkoutDate!)}
                       </p>
+                      <HotelCheckout stop={tonight} stops={trip.events} documents={documents} tripId={tripId} />
                       <button
                         className="text-btn"
                         onClick={() => setDetail(tonight)}
@@ -1378,11 +991,11 @@ export default function App() {
                     <div>
                       <h3>A little heads-up</h3>
                       <p>
-                        {dayIndex === 3
+                        {isCalifornia && dayIndex === 3
                           ? "Today includes two long drives plus Death Valley. Confirm road conditions and leave room for daylight."
-                          : dayIndex === 4
+                          : isCalifornia && dayIndex === 4
                             ? "A full Joshua Tree morning and a drive to San Diego. Set departure times before filling every stop."
-                            : dayIndex === 2
+                            : isCalifornia && dayIndex === 2
                               ? "Park hours change by date. Check the official calendar, then add your arrival time and tickets."
                               : "Your plans are coming together. Add the missing times and confirmations so travel day feels effortless."}
                       </p>
@@ -1411,12 +1024,12 @@ export default function App() {
             <>
               <PageTitle
                 eyebrow="THE WHOLE PICTURE"
-                title="Eight days. Endless possibilities."
-                subtitle="From city lights to desert skies, and back to the coast."
+                title={`${tripDates.length} days. Endless possibilities.`}
+                subtitle={isCalifornia ? "From city lights to desert skies, and back to the coast." : "Your journey, one day at a time."}
               />
               <div className="stats">
                 <div>
-                  <strong>8</strong>
+                  <strong>{tripDates.length}</strong>
                   <span>days of discovery</span>
                 </div>
                 <div>
@@ -1443,11 +1056,11 @@ export default function App() {
                     }}
                   >
                     <div className={"day-art art-" + (i % 4)}>
-                      {i === 0 || i === 7 ? (
+                      {trip.events.some(e=>e.date===d&&e.type==="flight") ? (
                         <Plane size={36} />
-                      ) : i === 3 || i === 4 ? (
+                      ) : isCalifornia && (i === 3 || i === 4) ? (
                         <Mountain size={42} />
-                      ) : i === 1 ? (
+                      ) : isCalifornia && i === 1 ? (
                         <Navigation size={40} />
                       ) : (
                         <Sun size={40} />
@@ -1462,7 +1075,7 @@ export default function App() {
                           day: "numeric",
                         })}
                       </small>
-                      <h3>{dayPlaces[i]}</h3>
+                      <h3>{(isCalifornia ? dayPlaces[i] : trip.events.find(e=>e.date===d)?.location) || `Day ${i+1}`}</h3>
                       <p>
                         {trip.events.filter((e) => e.date === d).length} stops
                         planned
@@ -1534,7 +1147,7 @@ export default function App() {
                         </span>
                         <div>
                           <a
-                            href={"/api/documents/" + d.id}
+                          href={documentUrl(d.id)}
                             target="_blank"
                             rel="noreferrer"
                           >
@@ -1544,7 +1157,8 @@ export default function App() {
                           <p>
                             {trip.events.find((e) => e.id === d.eventId)
                               ?.title || "Whole trip"}{" "}
-                            · {Math.max(1, Math.round(d.size / 1024))} KB
+                            {(() => { const linked=trip.events.find(e=>e.id===d.eventId); const stay=linked ? hotelStayForStop(linked,trip.events) : undefined; return stay?.checkoutDate ? ` · ${dateLabel(stay.date)}–${dateLabel(stay.checkoutDate)} (whole stay)` : ""; })()}
+                            {" "}· {Math.max(1, Math.round(d.size / 1024))} KB
                           </p>
                         </div>
                         <button
@@ -1650,8 +1264,8 @@ export default function App() {
                 {statusLabel[detail.status]}
               </span>
               <span>
-                {dateLabel(detail.date)} · {timeLabel(detail.time)}
-                {detail.time
+                {dateLabel(detail.date)} · {detailCheckoutStay ? "Checkout by " : ""}{timeLabel(detailTime)}
+                {detailTime
                   ? detail.zone === "America/Chicago"
                     ? " CT"
                     : " PT"
@@ -1666,6 +1280,8 @@ export default function App() {
               {detail.notes ||
                 "Add details to make this stop easier on the day."}
             </p>
+            {detail.type === "stay" && <HotelCheckout stop={detail} stops={trip.events} documents={documents} tripId={tripId} />}
+            {detail.type === "flight" && <FlightCheckIn stop={detail} now={now} onUpload={()=>{setUpload({eventId:detail.id});setDetail(null);}} />}
             {detail.url && (
               <a
                 className="official-link"
@@ -1679,12 +1295,11 @@ export default function App() {
             )}
             <div className="detail-docs">
               <h4>Documents for this stop</h4>
-              {documents
-                .filter((d) => d.eventId === detail.id)
+              {detailDocuments
                 .map((d) => (
                   <a
                     key={d.id}
-                    href={"/api/documents/" + d.id}
+                    href={documentUrl(d.id)}
                     target="_blank"
                     rel="noreferrer"
                   >
@@ -1693,7 +1308,7 @@ export default function App() {
                     <ArrowUpRight size={15} />
                   </a>
                 ))}
-              {!documents.some((d) => d.eventId === detail.id) && (
+              {!detailDocuments.length && (
                 <p className="muted">No document attached yet.</p>
               )}
               <button
@@ -1708,6 +1323,7 @@ export default function App() {
               </button>
             </div>
             <footer>
+              {detailCheckoutStay && <button className="secondary" onClick={()=>{setEditing(detailCheckoutStay);setDetail(null);}}>Edit hotel checkout</button>}
               <button
                 className="primary"
                 onClick={() => {
@@ -1728,7 +1344,7 @@ export default function App() {
           onClose={() => setEditing(null)}
           onSave={async (s) => {
             if (s.date < trip.start || s.date > trip.end)
-              throw new Error("Choose a date within December 18–25, 2026.");
+              throw new Error(`Choose a date within ${dateRange}.`);
             if ((s.lat === undefined) !== (s.lng === undefined))
               throw new Error(
                 "Provide both latitude and longitude, or leave both blank.",
@@ -1754,7 +1370,12 @@ export default function App() {
       )}
       {upload && (
         <UploadModal
+          key={tripId}
           events={trip.events}
+          tripId={tripId}
+          start={trip.start}
+          end={trip.end}
+          version={state.version}
           initial={upload.eventId}
           onClose={() => setUpload(null)}
           onUploaded={refresh}
@@ -1763,46 +1384,10 @@ export default function App() {
           }
         />
       )}
-      {invite && (
-        <Modal
-          title="The best trips are shared."
-          onClose={() => setInvite(null)}
-        >
-          <div className="detail-body">
-            <p>
-              Send this code to your companion along with this app’s address.
-              They can choose “Join your companion” on the sign-in page.
-            </p>
-            <label>
-              One-use invitation code
-              <input
-                readOnly
-                value={invite}
-                onFocus={(e) => e.target.select()}
-              />
-            </label>
-            <p className="muted">
-              Expires in 24 hours. Your companion can view and edit this trip
-              and open its documents. Generating a new code replaces the
-              previous one.
-            </p>
-            <button
-              className="primary"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(invite);
-                  setToast("Invitation copied.");
-                } catch {
-                  setToast("Select and copy the invitation code above.");
-                }
-              }}
-            >
-              Copy invitation
-              <Users size={16} />
-            </button>
-          </div>
-        </Modal>
-      )}
+      {newTrip && <NewTripModal onClose={()=>setNewTrip(false)} onCreate={async(input)=>{
+        const created=await api<{id:string}>("/trips",{method:"POST",body:JSON.stringify(input)});
+        setNewTrip(false); setDate(""); window.location.hash=pageHash("day",created.id);
+      }} />}
       {confirmDoc && (
         <Modal
           title="Remove this document?"
@@ -1821,7 +1406,7 @@ export default function App() {
                 className="primary"
                 onClick={async () => {
                   try {
-                    await api("/documents/" + confirmDoc, { method: "DELETE" });
+                    await api("/documents/" + confirmDoc + tripQuery, { method: "DELETE" });
                     await refresh();
                     setConfirmDoc(null);
                     setToast("Document removed.");

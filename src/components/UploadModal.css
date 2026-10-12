@@ -1,0 +1,97 @@
+.upload-body .dropzone input[type="file"][hidden] {
+  display: none;
+}
+.upload-body .upload-dropzone-compact {
+  padding: 18px;
+}
+.upload-dropzone-compact .upload-orb {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 8px;
+}
+.upload-queue {
+  display: grid;
+  gap: 16px;
+  margin: 16px 0;
+}
+.upload-queue .success-banner {
+  margin: 0;
+}
+.upload-queue .success-banner > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.upload-file-card {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  min-width: 0;
+}
+.upload-file-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.upload-file-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.upload-file-heading h3 {
+  margin: 0 0 3px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.upload-file-heading small {
+  color: #5b695b;
+  font-size: 10px;
+}
+.upload-file-heading > svg {
+  flex-shrink: 0;
+  color: #6a805a;
+}
+.upload-file-card > label,
+.upload-file-single > label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+}
+.upload-file-card > label select,
+.upload-file-single > label select {
+  width: 100%;
+}
+.upload-batch-footer {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.upload-image-preview {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  justify-items: start;
+}
+.upload-image-preview img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  object-position: left center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f7f8f4;
+}
+.upload-image-preview a {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 11px;
+}
+@media (max-width: 480px) {
+  .upload-file-card { padding: 14px; }
+  .upload-batch-footer > button { flex: 1 1 100%; }
+}

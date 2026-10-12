@@ -400,6 +400,27 @@ button:hover {
   color: #596653;
   font-weight: 550;
 }
+.breadcrumb a {
+  padding: 10px 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.breadcrumb a:hover { color: var(--green); }
+.trips-heading { display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:24px; }
+.trips-heading .page-title { margin-bottom:0; }
+.trips-heading > button { flex-shrink:0; }
+.trips-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 390px)); gap: 24px; padding-bottom: 40px; }
+.trip-collection-card { display: block; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: #fff; }
+.trip-collection-card:hover { box-shadow: 0 12px 35px #244c3e14; transform: translateY(-2px); }
+.trip-collection-art { height: 170px; position: relative; overflow: hidden; color: #4d6c50; background: linear-gradient(135deg, #e8dfc4, #d4dfc7); }
+.trip-collection-art > svg:first-child { position: absolute; top: 23px; right: 35px; color: #fcf6df; }
+.trip-collection-art > svg:nth-child(2) { position: absolute; right: 21px; bottom: 16px; width: 175px; height: 120px; stroke-width: 1; }
+.trip-collection-art > span { position: absolute; left: 25px; bottom: 27px; font-size: 10px; font-weight: 700; letter-spacing: 2px; }
+.trip-collection-body { padding: 25px; }
+.trip-collection-body h2 { margin: 12px 0; font-size: 24px; letter-spacing: -.7px; }
+.trip-collection-body p { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #596653; }
+.trip-collection-details { display: flex; flex-wrap: wrap; gap: 15px; margin: 20px 0; color: #596653; font-size: 11px; }
+.trip-collection-open { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 18px; font-size: 12px; font-weight: 650; }
 .top-actions {
   display: flex;
   align-items: center;
@@ -493,6 +514,7 @@ button:hover {
   backdrop-filter: blur(6px);
 }
 .date-strip {
+  overflow-x: auto;
   margin: 23px 0 34px;
   display: flex;
   gap: 10px;
@@ -502,6 +524,12 @@ button:hover {
   border-radius: 12px;
   padding: 11px 17px;
 }
+.day-documents { background:white; border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:20px; }
+.day-documents .section-heading { margin-bottom:8px; }
+.day-documents > p { color:var(--muted); font-size:12px; line-height:1.5; }
+.day-documents > a { display:flex; align-items:center; gap:9px; padding:12px 0; border-top:1px solid var(--border); font-size:12px; }
+.day-documents > a > span { flex:1; overflow-wrap:anywhere; }
+.day-documents > a > svg { flex-shrink:0; }
 .date-intro {
   width: 103px;
   flex-shrink: 0;
@@ -1407,6 +1435,17 @@ label .muted {
 .detail-body {
   padding: 24px 25px;
 }
+.matching-progress { display: flex; align-items: center; gap: 9px; margin: 16px 0; font-size: 12px; }
+.matching-note { margin: 15px 0; color: #596653; font-size: 12px; line-height: 1.6; }
+.booking-match-banner { display: flex; gap: 12px; padding: 16px; background: #edf3e7; border: 1px solid #dce6d3; border-radius: 10px; margin: 16px 0; }
+.booking-match-banner strong, .booking-candidates > strong { font-size: 13px; }
+.booking-match-banner p, .booking-candidates > p { font-size: 12px; line-height: 1.6; margin: 5px 0 0; color: #596653; }
+.booking-candidates { margin: 18px 0; }
+.booking-candidates button { display: flex; align-items: center; justify-content: space-between; width: 100%; text-align: left; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 9px; background: white; gap: 10px; }
+.booking-candidates button[aria-pressed="true"] { border-color: var(--green); background: #edf3e7; }
+.booking-candidates button strong, .booking-candidates small { display: block; }
+.booking-candidates button strong { font-size: 12px; }
+.booking-candidates small { color: #596653; line-height: 1.5; margin-top: 4px; }
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2596,3 +2635,8 @@ label .muted {
   width: 42px;
   border-radius: 16px;
 }
+.checkout-import { margin: 16px 0; padding: 16px; border: 1px solid #cbd8be; border-radius: 12px; background: #f3f6ed; }
+.checkout-import label { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
+.checkout-import input[type="checkbox"] { width: 17px; height: 17px; margin: 3px 0 0; flex: 0 0 17px; accent-color: #294f43; }
+.checkout-import p { margin: 9px 0; font-size: 12px; overflow-wrap: anywhere; }
+.checkout-import small { color: #526a61; }

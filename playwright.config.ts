@@ -1,30 +1,6 @@
-import { defineConfig, chromium } from "@playwright/test";
-import { mkdtempSync, existsSync } from "node:fs";
-const testData = mkdtempSync("/tmp/wayfarer-browser-");
+import { defineConfig } from "@playwright/test";
 export default defineConfig({
-  testDir: "./tests/browser",
-  workers: 1,
-  fullyParallel: false,
-  timeout: 60000,
-  use: {
-    baseURL: "http://127.0.0.1:3123",
-    headless: true,
-    actionTimeout: 10000,
-    trace: "retain-on-failure",
-    launchOptions: {
-      executablePath:
-        process.env.CHROMIUM_PATH ||
-        (existsSync("/usr/bin/chromium")
-          ? "/usr/bin/chromium"
-          : chromium.executablePath()),
-      args: ["--no-sandbox"],
-    },
-    screenshot: "only-on-failure",
-  },
-  webServer: {
-    command: `DATA_DIR=${testData} PORT=3123 NODE_ENV=production npm start`,
-    url: "http://127.0.0.1:3123/api/auth",
-    reuseExistingServer: false,
-    timeout: 60000,
-  },
+  testDir: "./tests/browser", workers: 1, timeout: 120000,
+  use: { baseURL: "http://127.0.0.1:5173", viewport: {width:1440,height:1000}, headless:true,
+    screenshot:"only-on-failure",trace:"retain-on-failure", channel:"msedge" },
 });

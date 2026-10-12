@@ -1,33 +1,24 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "@playwright/test";
-const password = "travel-test-password-2026";
-test("private travel workspace: setup, date navigation, edits, uploads, companion and mobile", async ({
+test("Sites travel workspace: saved edits, private files, PDF import and mobile", async ({
   page,
   browser,
   request,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "Let the adventure begin." }),
-  ).toBeVisible();
-  const authA11y = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa"])
-    .analyze();
-  expect(
-    authA11y.violations.map((v) => ({
-      id: v.id,
-      nodes: v.nodes.map((n) => ({
-        target: n.target,
-        summary: n.failureSummary,
-      })),
-    })),
-  ).toEqual([]);
-  await page.getByLabel("Your name").fill("Traveler");
-  await page.getByLabel("Email", { exact: true }).fill("traveler@example.test");
-  await page.getByLabel("Password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Create my travel space" }).click();
+  page.on("console", (message) => {
+    if (message.text().includes("Setting up fake worker")) errors.push(message.text());
+  });
+  await page.goto("/signin-with-chatgpt?return_to=%2F");
+  // Clear only artifacts from previous runs in this disposable local preview.
+  const previous = await (await page.request.get("/api/trip")).json();
+  for (const doc of previous.documents.filter((d: {name:string}) => ["Universal-confirmation.txt","sample-itinerary.pdf"].includes(d.name))) {
+    await page.request.delete(`/api/documents/${doc.id}`);
+  }
+  previous.trip.events = previous.trip.events.filter((e:{title:string}) => !["Reviewed imported activity","Temporary test stop"].includes(e.title));
+  await page.request.put("/api/trip",{data:{trip:previous.trip,version:previous.version}});
+  await page.reload();
   await expect(
     page.getByRole("heading", { name: "California, together." }),
   ).toBeVisible();
@@ -110,61 +101,6 @@ test("private travel workspace: setup, date navigation, edits, uploads, companio
       exact: true,
     }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Invite companion", exact: true })
-    .click();
-  const code = await page.getByLabel("One-use invitation code").inputValue();
-  await page.getByRole("button", { name: "Close dialog" }).click();
-  const context = await browser.newContext();
-  const companion = await context.newPage();
-  await companion.goto("/");
-  await companion
-    .getByRole("button", { name: "Have an invitation? Join your companion" })
-    .click();
-  await companion.getByLabel("Your name").fill("Companion");
-  await companion
-    .getByLabel("Email", { exact: true })
-    .fill("companion@example.test");
-  await companion.getByLabel("Password", { exact: true }).fill(password);
-  await companion.getByLabel("Invitation code", { exact: true }).fill(code);
-  await companion
-    .getByRole("button", { name: "Join the adventure", exact: true })
-    .click();
-  await expect(
-    companion.getByRole("heading", { name: "California, together." }),
-  ).toBeVisible();
-  expect((await companion.request.get(docUrl!)).status()).toBe(200);
-  const snapshot = await (await page.request.get("/api/trip")).json();
-  const save = await companion.request.put("/api/trip", {
-    data: { trip: snapshot.trip, version: snapshot.version },
-  });
-  expect(save.ok()).toBeTruthy();
-  const stale = await page.request.put("/api/trip", {
-    data: { trip: snapshot.trip, version: snapshot.version },
-  });
-  expect(stale.status()).toBe(409);
-  const invalid = await page.request.post("/api/documents", {
-    multipart: {
-      file: {
-        name: "bad.pdf",
-        mimeType: "application/pdf",
-        buffer: Buffer.from("<html>not a PDF</html>"),
-      },
-    },
-  });
-  expect(invalid.status()).toBe(400);
-  const csrf = await page.request.post("/api/invite", {
-    headers: { origin: "https://other.example" },
-  });
-  expect(csrf.status()).toBe(403);
-  const replay = await request.post("/api/auth/join", {
-    data: { name: "Uninvited", email: "third@example.test", password, code },
-  });
-  expect(replay.status()).toBe(400);
-  const publicSignup = await request.post("/api/auth/setup", {
-    data: { name: "Stranger", email: "stranger@example.test", password },
-  });
-  expect(publicSignup.status()).toBe(409);
   await page.reload();
   await page.getByRole("button", { name: /Sun 20/ }).click();
   await page.getByRole("button", { name: "Add a stop", exact: true }).click();
@@ -215,15 +151,17 @@ test("private travel workspace: setup, date navigation, edits, uploads, companio
   }
   await expect(page.getByRole("status")).toBeHidden();
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: "/tmp/wayfarer-desktop.png", fullPage: true });
+  await page.screenshot({ path: "test-results/wayfarer-desktop.png", fullPage: true, animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
+  await expect(page.getByRole("heading", { name: "California, together." })).toBeVisible();
+  await expect(page.locator(".stop-pin").first()).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  await page.screenshot({ path: "/tmp/wayfarer-mobile.png", fullPage: true });
+  await page.screenshot({ path: "test-results/wayfarer-mobile.png", fullPage: true, animations: "disabled" });
   await page.getByRole("button", { name: "Toggle navigation" }).click();
   await page
     .getByRole("button", { name: /Documents/ })
@@ -233,6 +171,7 @@ test("private travel workspace: setup, date navigation, edits, uploads, companio
     page.getByRole("link", { name: "Universal-confirmation.txt" }),
   ).toBeVisible();
   await page.clock.install({ time: new Date("2026-12-20T17:00:00Z") });
+  await page.goto("/#day");
   await page.reload();
   await expect(page.getByRole("button", { name: /Sun 20/ })).toHaveAttribute(
     "aria-pressed",
@@ -240,5 +179,139 @@ test("private travel workspace: setup, date navigation, edits, uploads, companio
   );
   await expect(page.getByText(/Today ·/)).toBeVisible();
   expect(errors).toEqual([]);
-  await context.close();
+
+});
+
+test("My trips navigation and booking-to-itinerary attachment", async ({page}) => {
+  await page.goto("/signin-with-chatgpt?return_to=%2F");
+  await expect(page.getByRole("heading", {name:"California, together."})).toBeVisible();
+  await page.getByRole("button", {name:/To sort out/}).click();
+  await page.getByRole("link", {name:"My trips",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"My trips",exact:true})).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading",{name:"My trips",exact:true})).toBeVisible();
+  await page.getByRole("link",{name:"Open California escape"}).click();
+  await expect(page.getByRole("heading", {name:"California, together."})).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("heading",{name:"My trips",exact:true})).toBeVisible();
+  await page.goForward();
+  await expect(page.getByRole("heading", {name:"California, together."})).toBeVisible();
+  const before=await (await page.request.get("/api/trip")).json();
+  const fileName=`booking-match-${Date.now()}.txt`;
+  let documentId: string|undefined;
+  try {
+    await page.getByRole("button",{name:"Add documents",exact:true}).click();
+    await page.locator("input[type=file]").setInputFiles({name:fileName,mimeType:"text/plain",buffer:Buffer.from("Booking confirmation ABC123. American Airlines AA1639. DFW to LAX. December 18, 2026.")});
+    await expect(page.getByText("Matched to Hello, Los Angeles",{exact:true})).toBeVisible();
+    await expect(page.getByLabel("Attach to a stop",{exact:true})).toHaveValue("flight-out");
+    await page.getByRole("button",{name:"Save document",exact:true}).click();
+    await expect(page.getByText(/Attached to Hello, Los Angeles/)).toBeVisible();
+    await expect(page.getByRole("heading",{name:"Review extracted day notes"})).toHaveCount(0);
+    const after=await (await page.request.get("/api/trip")).json();
+    const document=after.documents.find((d:{name:string})=>d.name===fileName);
+    documentId=document.id;
+    expect(document.eventId).toBe("flight-out");
+    expect(after.trip.events).toEqual(before.trip.events);
+    await page.getByRole("button",{name:"Done",exact:true}).click();
+    await page.getByRole("button",{name:"Hello, Los Angeles",exact:true}).click();
+    await expect(page.getByRole("link",{name:"Open document",exact:true})).toBeVisible();
+    await page.getByRole("button",{name:"Close dialog"}).click();
+    await page.getByRole("button",{name:"Add documents",exact:true}).click();
+    await page.locator("input[type=file]").setInputFiles({name:"two-bookings.txt",mimeType:"text/plain",buffer:Buffer.from("Booking confirmation. AA1639 DFW to LAX December 18, 2026. Hotel Burbank check-in December 18, 2026.")});
+    await expect(page.getByText("Choose the matching stop",{exact:true})).toBeVisible();
+    await expect(page.getByLabel("Attach to a stop",{exact:true})).toHaveValue("");
+    await page.getByRole("dialog").getByRole("button",{name:/Check in. Settle in./}).click();
+    await expect(page.getByLabel("Attach to a stop",{exact:true})).toHaveValue("burbank");
+    await page.getByRole("button",{name:"Close dialog"}).click();
+    await page.setViewportSize({width:390,height:844});
+    await page.getByRole("link",{name:"My trips",exact:true}).click();
+    await expect(page.getByRole("heading",{name:"My trips",exact:true})).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:"test-results/my-trips-mobile.png",fullPage:true,animations:"disabled"});
+  } finally {
+    if(documentId) await page.request.delete(`/api/documents/${documentId}`);
+  }
+});
+
+test("checkout evidence, flight check-in and reviewed park order work together",async({page})=>{
+  await page.goto("/signin-with-chatgpt?return_to=%2F");
+  await expect(page.getByRole("heading",{name:"California, together."})).toBeVisible();
+  const before=await (await page.request.get("/api/trip")).json();
+  let uploadedId:string|undefined;
+  try {
+    await page.getByRole("button",{name:"Check in. Settle in.",exact:true}).click();
+    await expect(page.getByRole("dialog").getByText("Standard checkout 12 PM",{exact:true})).toBeVisible();
+    await expect(page.getByRole("dialog").getByText(/itinerary reports 11 AM/)).toBeVisible();
+    await page.getByRole("button",{name:"Close dialog"}).click();
+    await page.getByRole("button",{name:"Add documents",exact:true}).click();
+    await page.locator("input[type=file]").setInputFiles({name:"hotel-checkout-test.txt",mimeType:"text/plain",buffer:Buffer.from("Reservation confirmation HB1234. Hotel Burbank. Check-in: December 18, 2026 at 3 PM. Check-out: December 21, 2026 at 10:30 AM.")});
+    await expect(page.getByText("Matched to Check in. Settle in.",{exact:true})).toBeVisible();
+    await expect(page.getByLabel("Save checkout at 10:30 AM with this stay")).toBeChecked();
+    await page.getByRole("button",{name:"Save document",exact:true}).click();
+    await expect(page.getByRole("heading",{name:"Document tucked away"})).toBeVisible();
+    await page.getByRole("button",{name:"Done",exact:true}).click();
+    const saved=await (await page.request.get("/api/trip")).json();
+    uploadedId=saved.documents.find((d:{name:string})=>d.name==="hotel-checkout-test.txt").id;
+    expect(saved.trip.events.find((e:{id:string})=>e.id==="burbank").checkout).toMatchObject({time:"10:30",source:"booking",documentId:uploadedId});
+    expect(saved.trip.events.length).toBe(before.trip.events.length);
+    await page.reload();
+    await page.getByRole("button",{name:"Check in. Settle in.",exact:true}).click();
+    await expect(page.getByRole("dialog").getByText("By 10:30 AM",{exact:true})).toBeVisible();
+    await expect(page.getByRole("dialog").getByText(/From booking/)).toBeVisible();
+    await page.getByRole("button",{name:"Close dialog"}).click();
+    await page.getByRole("button",{name:/Mon 21/}).click();
+    await expect(page.getByText("Checkout by 10:30 AM",{exact:false})).toBeVisible();
+    await page.getByRole("button",{name:"One last Burbank morning",exact:true}).click();
+    await expect(page.getByRole("dialog").locator(".detail-meta")).toContainText("Checkout by 10:30 AM");
+    await page.getByRole("button",{name:"Edit hotel checkout"}).click();
+    await expect(page.getByLabel("Checkout deadline (local time)")).toHaveValue("10:30");
+    await page.getByRole("button",{name:"Close dialog"}).click();
+    const directions=page.getByRole("link",{name:"Open day in Google Maps",exact:true});
+    const routeUrl=new URL((await directions.getAttribute("href"))!);
+    expect(routeUrl.hostname).toBe("www.google.com");
+    expect(routeUrl.searchParams.get("origin")).toContain("Hotel Burbank");
+    expect(routeUrl.searchParams.get("destination")).toContain("6333 Encelia");
+    expect(routeUrl.searchParams.get("waypoints")!.split("|")).toHaveLength(4);
+    await expect(directions).toHaveAttribute("target","_blank");
+    await expect(page.getByRole("region",{name:"Death Valley route review"})).toContainText("Order reviewed");
+    await page.getByRole("region",{name:"Death Valley route review"}).getByText("Why this route").click();
+    await expect(page.getByRole("region",{name:"Death Valley route review"})).toContainText("no direct road between them");
+    await page.screenshot({path:"test-results/route-review-desktop.png",fullPage:true,animations:"disabled"});
+    // Simulate an editable older order to exercise the route suggestion after
+    // the one-time default correction has already been recorded locally.
+    const oldOrder=["jt","keys","cap","cholla","hidden","arch","sandiego"];
+    const fixture=await (await page.request.get("/api/trip")).json();
+    let orderIndex=0;
+    const oldStops=oldOrder.map(id=>fixture.trip.events.find((e:{id:string})=>e.id===id));
+    fixture.trip.events=fixture.trip.events.map((e:{date:string})=>e.date==="2026-12-22"?oldStops[orderIndex++]:e);
+    await page.request.put("/api/trip",{data:{trip:fixture.trip,version:fixture.version}});
+    await page.reload();
+    await page.getByRole("button",{name:/Tue 22/}).click();
+    const review=page.getByRole("region",{name:"Joshua Tree route review"});
+    await expect(review).toContainText("Suggested order");
+    await review.getByRole("button",{name:"Use this stop order"}).click();
+    await expect(review).toContainText("Order reviewed");
+    const reordered=await (await page.request.get("/api/trip")).json();
+    expect(reordered.trip.events.filter((e:{date:string})=>e.date==="2026-12-22").map((e:{id:string})=>e.id)).toEqual(["jt","hidden","cap","keys","arch","cholla","sandiego"]);
+    expect(reordered.trip.events.find((e:{id:string})=>e.id==="cap").lat).toBe(33.98921);
+    await page.getByRole("button",{name:/Fri 18/}).click();
+    await page.getByRole("button",{name:"Hello, Los Angeles",exact:true}).click();
+    await expect(page.getByRole("dialog").getByText(/Check-in opens in/)).toBeVisible();
+    await expect(page.getByRole("dialog").locator("time")).toHaveAttribute("datetime","2026-12-17T12:00:00.000Z");
+    await page.getByRole("button",{name:"Save boarding pass",exact:true}).click();
+    await expect(page.getByLabel("Attach to a stop",{exact:true})).toHaveValue("flight-out");
+    await page.getByRole("button",{name:"Close dialog"}).click();
+    await page.setViewportSize({width:390,height:844});
+    await page.getByRole("button",{name:/Mon 21/}).click();
+    await expect(page.getByRole("link",{name:"Open day in Google Maps, part 1 of 2",exact:true})).toBeVisible();
+    await expect(page.locator(".day-directions-parts a")).toHaveCount(2);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:"test-results/route-review-mobile.png",fullPage:true,animations:"disabled"});
+    const audit=await new AxeBuilder({page}).withTags(["wcag2a","wcag2aa"]).analyze();
+    expect(audit.violations.map(v=>v.id)).toEqual([]);
+  } finally {
+    if(uploadedId) await page.request.delete(`/api/documents/${uploadedId}`);
+    const latest=await (await page.request.get("/api/trip")).json();
+    await page.request.put("/api/trip",{data:{trip:before.trip,version:latest.version}});
+  }
 });

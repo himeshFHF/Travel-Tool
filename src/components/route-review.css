@@ -1,0 +1,33 @@
+.route-review {
+  padding: 19px;
+  background: #eff3e9;
+  border: 1px solid #dce5d6;
+  border-radius: 12px;
+  margin-top: 18px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.route-review-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.route-review-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: #426b50; background: #fff; }
+.route-review-heading h3 { font-size: 14px; line-height: 1.4; }
+.route-review-heading p { font-size: 10px; color: #5e705f; margin-top: 2px; }
+.route-review-check { margin-left: auto; color: #3a6d4b; }
+.route-review-summary { color: #405642; }
+.route-review-sequence { padding-left: 19px; margin: 12px 0; }
+.route-review-sequence li { padding-left: 4px; margin: 4px 0; }
+.route-review-sequence li::marker { color: #648066; font-size: 10px; font-weight: 700; }
+.route-review-sequence li span { color: #637160; font-size: 10px; }
+.route-review-apply { width: 100%; margin-top: 3px; }
+.route-review-reason { color: #865b32; margin-top: 10px; }
+.route-review-pin-note { color: #586951; font-size: 11px; margin: 9px 0; }
+.route-review-details { margin-top: 13px; border-top: 1px solid #dce5d6; padding-top: 10px; }
+.route-review-details summary { display: flex; align-items: center; justify-content: space-between; cursor: pointer; color: #365b43; font-weight: 650; list-style: none; }
+.route-review-details summary::-webkit-details-marker { display: none; }
+.route-review-details summary:focus-visible { outline: 3px solid #c2b46e; outline-offset: 4px; }
+.route-review-details[open] summary svg { transform: rotate(180deg); }
+.route-review-details p { margin-top: 11px; color: #586951; }
+.route-review-details .route-review-context { font-weight: 600; color: #3e5b44; }
+.route-review-sources { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 13px; }
+.route-review-sources a { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: #315a3f; text-decoration: underline; text-underline-offset: 3px; }
+.route-review-details .route-review-footnote { font-size: 10px; line-height: 1.6; color: #65745d; }
+@media (max-width: 560px) { .route-review { padding: 17px; } }
