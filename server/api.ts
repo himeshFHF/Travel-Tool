@@ -7,6 +7,7 @@ import { buildEmailPreview } from "./document-preview";
 import { readEmailAttachment } from "../src/email";
 import { checkoutStayForReminder } from "../src/hotel-checkout";
 import { HOTEL_REVIEW_METADATA, recoverLegacyHotelEvidence } from "./hotel-evidence-backfill";
+import { bookingDocuments, bookingStopIds, checkDocumentDuplicate, conflictGuard, documentHash, indexedDuplicate, type SavedDocument } from "./document-dedup";
 
 type Identity = { userId: string; displayName: string; email: string };
 type Bindings = { DB?: D1Database; BUCKET?: R2Bucket };
@@ -148,26 +149,54 @@ export async function handleApi(request: Request, bindings: Bindings, identity: 
           return json({id,name,eventId,size:file.size,mime,...(current ? {tripVersion:current.version} : {})});
         }
       }
+      // Validate the requested target/details even when the bytes already exist.
+      // A valid duplicate may bypass a stale edit version because no edit occurs.
       let bookingUpdate: {trip: Trip; version: number; checkout?: {evidence:string;time:string}; stay?: {start:string;end:string;evidence:string}} | undefined;
       if(eventId || checkoutInput || stayProvided) {
-        const row = selectedTrip;
-        const trip: Trip = JSON.parse(row.payload);
-        const stop = trip?.events.find(e=>e.id===eventId);
-        if(!row || !trip || !stop) throw new HttpError(400,"That stop no longer exists.");
+        const trip:Trip=JSON.parse(selectedTrip.payload);
+        const stop=trip.events.find(stop=>stop.id===eventId);
+        if(!stop) throw new HttpError(400,"That stop no longer exists.");
         if(checkoutInput || stayProvided) {
           if(stop.type!=="stay") throw new HttpError(400,"Attach hotel booking details to a hotel stay.");
           const version=z.coerce.number().int().positive().parse(form.get("version"));
-          if(version!==row.version) throw new HttpError(409,"Your trip changed while you were reviewing this booking. Close the upload and refresh before saving.");
-          const stay = stayProvided ? z.object({start:z.iso.date(),end:z.iso.date(),evidence:z.string().trim().min(1).max(300)}).parse({start:form.get("stayStart"),end:form.get("stayEnd"),evidence:form.get("stayEvidence")}) : undefined;
+          const stay=stayProvided ? z.object({start:z.iso.date(),end:z.iso.date(),evidence:z.string().trim().min(1).max(300)}).parse({start:form.get("stayStart"),end:form.get("stayEnd"),evidence:form.get("stayEvidence")}) : undefined;
           if(stay && (stay.start<trip.start || stay.end>trip.end || stay.end<=stay.start)) throw new HttpError(400,"Hotel arrival and checkout must fall within this trip, with checkout after arrival.");
           if(checkoutInput && !stop.checkoutDate && !stay) throw new HttpError(400,"Attach checkout details to an overnight hotel stay, or include its arrival and checkout dates.");
           const checkout=checkoutInput ? z.object({time:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),evidence:z.string().trim().min(1).max(300)}).parse({time:checkoutInput,evidence:form.get("checkoutEvidence")}) : undefined;
-          bookingUpdate = {trip,version:row.version,checkout,stay};
+          bookingUpdate={trip,version,checkout,stay};
         }
       }
+      const hash=await documentHash(b);
+      const duplicateResponse=async(document:SavedDocument)=>{
+        const current=await db.prepare("SELECT * FROM trips WHERE id=?").bind(tripId).first<TripRow>();
+        return json({...document,duplicate:true,tripVersion:current?.version ?? selectedTrip.version});
+      };
+      const duplicateCheck=await checkDocumentDuplicate(db,bindings.BUCKET,tripId,hash,file.size);
+      if(duplicateCheck.duplicate) return await duplicateResponse(duplicateCheck.duplicate);
+      if(duplicateCheck.unavailable) throw new HttpError(503,"An existing original is temporarily unavailable for duplicate checking. Please retry before adding this file.");
+      if(duplicateCheck.pending) throw new HttpError(503,"We’re checking older originals for duplicates. Progress has been saved; retry this upload to finish checking.");
+      const bookingIds=bookingStopIds(JSON.parse(selectedTrip.payload),eventId);
+      let reviewedInput:unknown=[];
+      if(form.has("reviewedDocumentIds")) {
+        try { reviewedInput=JSON.parse(String(form.get("reviewedDocumentIds"))); }
+        catch { throw new HttpError(400,"Review the existing documents before keeping both."); }
+      }
+      const reviewed=z.array(z.string().min(1).max(200)).max(1000).parse(reviewedInput);
+      const existingBooking=await bookingDocuments(db,tripId,bookingIds);
+      const conflictResponse=(documents:SavedDocument[])=>json({code:"document_conflict",error:"Another document is already attached to this booking. Review before adding.",conflicts:documents},409);
+      if(existingBooking.some(document=>!reviewed.includes(document.id))) return conflictResponse(existingBooking);
+      const guard=conflictGuard(tripId,bookingIds,reviewed);
+      // Keeping another original never replaces the booking evidence already saved.
+      const keepBoth=existingBooking.length>0;
+      if(keepBoth) bookingUpdate=undefined;
+      if(bookingUpdate && bookingUpdate.version!==selectedTrip.version) throw new HttpError(409,"Your trip changed while you were reviewing this booking. Close the upload and refresh before saving.");
       const stored = await bindings.BUCKET.put(`documents/${id}`,b,{httpMetadata:{contentType:mime},customMetadata:{[HOTEL_REVIEW_METADATA]:"1"},onlyIf:new Headers({"If-None-Match":"*"})});
       if(!stored) throw new HttpError(409,"This file is already being saved. Wait a moment and retry.");
       try {
+        const insertSql="INSERT INTO documents (id,trip_id,event_id,name,mime,size) SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM document_fingerprints WHERE trip_id=? AND sha256=?)"+guard.sql;
+        const insertArgs=[id,tripId,eventId,name,mime,file.size,tripId,hash,...guard.args];
+        const fingerprint=db.prepare("INSERT INTO document_fingerprints (document_id,trip_id,sha256) SELECT id,trip_id,? FROM documents WHERE id=? AND trip_id=?").bind(hash,id,tripId);
+        let inserted=false;
         if(bookingUpdate) {
           const {trip,version,checkout,stay} = bookingUpdate;
           const originalStay=trip.events.find(stop=>stop.id===eventId)!;
@@ -188,16 +217,26 @@ export async function handleApi(request: Request, bindings: Bindings, identity: 
           // Both metadata and itinerary details commit together; a concurrent trip edit
           // prevents the insert so a retry cannot leave a duplicate booking behind.
           const results = await db.batch([
-            db.prepare("INSERT INTO documents (id,trip_id,event_id,name,mime,size) SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM trips WHERE id=? AND version=?)").bind(id,tripId,eventId,name,mime,file.size,tripId,version),
+            db.prepare(insertSql+" AND EXISTS (SELECT 1 FROM trips WHERE id=? AND version=?)").bind(...insertArgs,tripId,version),
+            fingerprint,
             db.prepare("UPDATE trips SET payload=?,version=version+1 WHERE id=? AND version=? AND EXISTS (SELECT 1 FROM documents WHERE id=?)").bind(JSON.stringify(trip),tripId,version,id),
           ]);
-          if(!results[0].meta.changes) throw new HttpError(409,"Your trip changed while this booking was saving. Refresh and try again.");
+          inserted=!!results[0].meta.changes;
         } else {
-          await db.prepare("INSERT INTO documents (id,trip_id,event_id,name,mime,size) VALUES (?,?,?,?,?,?)").bind(id,tripId,eventId,name,mime,file.size).run();
+          const results=await db.batch([db.prepare(insertSql).bind(...insertArgs),fingerprint]);
+          inserted=!!results[0].meta.changes;
+        }
+        if(!inserted) {
+          await bindings.BUCKET.delete(`documents/${id}`);
+          const winner=await indexedDuplicate(db,tripId,hash);
+          if(winner) return await duplicateResponse(winner);
+          const currentBooking=await bookingDocuments(db,tripId,bookingIds);
+          if(currentBooking.some(document=>!reviewed.includes(document.id))) return conflictResponse(currentBooking);
+          throw new HttpError(409,"Your trip changed while this booking was saving. Refresh and try again.");
         }
       }
       catch(e) { await bindings.BUCKET.delete(`documents/${id}`); throw e; }
-      return json({id,name,eventId,size:file.size,mime,...(bookingUpdate ? {tripVersion:bookingUpdate.version+1} : {})},201);
+      return json({id,name,eventId,size:file.size,mime,...(keepBoth ? {keptBoth:true} : {}),...(bookingUpdate ? {tripVersion:bookingUpdate.version+1} : {})},201);
     }
     const docId = /^\/documents\/([\w-]+)$/.exec(route)?.[1];
     if(docId && ["GET","DELETE"].includes(method)) {
@@ -205,7 +244,10 @@ export async function handleApi(request: Request, bindings: Bindings, identity: 
       if(!doc) throw new HttpError(404,"Document not found.");
       if(method==="DELETE") {
         await bindings.BUCKET.delete(`documents/${doc.id}`);
-        await db.prepare("DELETE FROM documents WHERE id=? AND trip_id=?").bind(doc.id,tripId).run();
+        await db.batch([
+          db.prepare("DELETE FROM document_fingerprints WHERE document_id=? AND trip_id=?").bind(doc.id,tripId),
+          db.prepare("DELETE FROM documents WHERE id=? AND trip_id=?").bind(doc.id,tripId),
+        ]);
         return json({ok:true});
       }
       const object = await bindings.BUCKET.get(`documents/${doc.id}`);

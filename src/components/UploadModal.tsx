@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, CheckCircle2, ChevronRight, FileText, Loader2, LockKeyhole, Plus, Trash2, Upload, X } from "lucide-react";
-import { dateLabel, timeLabel, type Stop } from "../model";
+import { dateLabel, timeLabel, type Stop, type Document } from "../model";
 import { extractText, parseItinerary } from "../import";
 import { matchBooking, type BookingMatch } from "../booking-match";
 import { extractHotelCheckout, extractHotelStayDates } from "../hotel-checkout";
@@ -22,9 +22,14 @@ export type UploadModalProps = {
 type QueuedFile = {
   id: string;
   file: File;
-  status: "reading" | "ready" | "saving" | "saved" | "failed" | "invalid";
+  status: "reading" | "ready" | "saving" | "saved" | "skipped" | "review" | "failed" | "invalid";
   eventId: string;
   manualAttachment: boolean;
+  showAllStops: boolean;
+  conflicts: Document[];
+  reviewedDocumentIds: string[];
+  outcome: string;
+  existingDocument?: Document;
   text: string;
   matching: BookingMatch | null;
   readNotice: string;
@@ -115,6 +120,8 @@ export default function UploadModal({ events, version, tripId, start, end, initi
       return {
         id: crypto.randomUUID(), file, eventId: defaultAttachment,
         manualAttachment: defaultAttachmentManual.current,
+        showAllStops: false,
+        conflicts: [], reviewedDocumentIds: [], outcome: "",
         status: validationError ? "invalid" : "reading",
         text: "", matching: null, readNotice: "", error: validationError, useCheckout: true, useStayDates: true,
       };
@@ -132,7 +139,7 @@ export default function UploadModal({ events, version, tripId, start, end, initi
           updateFile(entry.id, (current) => ({
             status: "ready", text, matching,
             eventId: !current.manualAttachment && matching.autoMatchId ? matching.autoMatchId : current.eventId,
-            readNotice: text.trim() ? "" : "We couldn’t read booking details from this file. Choose a stop below, or save it with the whole trip.",
+            readNotice: text.trim() ? "" : "We couldn’t extract booking details. Images and scanned PDFs need a manual choice; select a stop below or save with the whole trip.",
           }));
         } catch {
           updateFile(entry.id, {
@@ -170,6 +177,7 @@ export default function UploadModal({ events, version, tripId, start, end, initi
           body.append("file", item.file);
           body.append("eventId", item.eventId);
           body.append("uploadId", item.id);
+          if(item.reviewedDocumentIds.length) body.append("reviewedDocumentIds",JSON.stringify(item.reviewedDocumentIds));
           if (stayDates && item.useStayDates) {
             body.append("stayStart", stayDates.start);
             body.append("stayEnd", stayDates.end);
@@ -183,7 +191,11 @@ export default function UploadModal({ events, version, tripId, start, end, initi
             body.append("version", String(currentVersion));
           }
           const response = await fetch(`/api/documents?${new URLSearchParams({ tripId })}`, { method: "POST", body });
-          const result = await response.json() as { error?: string; tripVersion?: number };
+          const result = await response.json() as Document & { error?: string; tripVersion?: number; duplicate?:boolean; keptBoth?:boolean; code?:string; conflicts?:Document[] };
+          if(response.status===409 && result.code==="document_conflict" && result.conflicts?.length) {
+            updateFile(item.id,{status:"review",conflicts:result.conflicts,reviewedDocumentIds:[],error:""});
+            continue;
+          }
           if (!response.ok) throw new Error(result.error || "This document could not be saved. Try again.");
           if (typeof result.tripVersion === "number") {
             currentVersion = result.tripVersion;
@@ -191,7 +203,11 @@ export default function UploadModal({ events, version, tripId, start, end, initi
           }
           // Mark success before refreshing the trip; refresh failure must never resend a saved file.
           stored = true;
-          updateFile(item.id, { status: "saved", error: "" });
+          updateFile(item.id, { status: result.duplicate ? "skipped" : "saved", error: "",
+            ...(result.duplicate ? {eventId:result.eventId || "",existingDocument:result,outcome:`Already saved as ${result.name}. Duplicate skipped; the existing attachment was kept.`}
+              : result.keptBoth ? {outcome:"Both originals kept. Existing booking dates and times were left unchanged."} : {}),
+          });
+          if(result.duplicate) continue;
           if (!item.eventId && !item.matching?.isBooking) {
             for (const proposal of parseItinerary(item.text, Number(start.slice(0, 4)), { start, end })) {
               if (!proposal.date || proposal.date < start || proposal.date > end) continue;
@@ -224,8 +240,10 @@ export default function UploadModal({ events, version, tripId, start, end, initi
   const failedCount = queue.filter((item) => item.status === "failed").length;
   const invalidCount = queue.filter((item) => item.status === "invalid").length;
   const savedCount = queue.filter((item) => item.status === "saved").length;
+  const skippedCount = queue.filter((item) => item.status === "skipped").length;
+  const reviewCount = queue.filter((item) => item.status === "review").length;
   const pendingCount = readyCount + failedCount;
-  const complete = queue.length > 0 && savedCount === queue.length;
+  const complete = queue.length > 0 && savedCount + skippedCount === queue.length;
   const batch = queue.length > 1;
   const saveLabel = !readyCount && failedCount
     ? `Retry ${failedCount === 1 ? "failed file" : `${failedCount} failed files`}`
@@ -233,21 +251,26 @@ export default function UploadModal({ events, version, tripId, start, end, initi
 
   function attachmentSelect(item?: QueuedFile) {
     const label = item && batch ? `Attach ${item.file.name} to a stop` : "Attach to a stop";
-    return <label>
+    const types = item?.matching?.documentTypes || [];
+    const filtered = !!item && types.length > 0 && !item.showAllStops;
+    const options = filtered ? events.filter(event => types.includes(event.type) || event.id === item.eventId) : events;
+    return <div className="upload-attachment-selector"><label>
       Attach to a stop
       <select
         aria-label={label}
         value={item?.eventId ?? defaultAttachment}
         disabled={busy || item?.status === "saved" || item?.status === "invalid"}
         onChange={(event) => {
-          if (item) updateFile(item.id, { eventId: event.target.value, manualAttachment: true, useCheckout: true, useStayDates: true });
+          if (item) updateFile(item.id, { eventId: event.target.value, manualAttachment: true, useCheckout: true, useStayDates: true, conflicts:[],reviewedDocumentIds:[],...(item.status==="review" ? {status:"ready"} : {}) });
           else { defaultAttachmentManual.current = true; setDefaultAttachment(event.target.value); }
         }}
       >
         <option value="">Whole trip / itinerary</option>
-        {events.map((event) => <option key={event.id} value={event.id}>{dateLabel(event.date)} · {event.title}</option>)}
+        {options.map((event) => <option key={event.id} value={event.id}>{dateLabel(event.date)} · {event.title}</option>)}
       </select>
-    </label>;
+    </label>
+      {filtered && <p className="matching-note">Showing stops for this document’s booking type. <button type="button" className="text-btn" disabled={busy || item.status === "saved"} onClick={() => updateFile(item.id, { showAllStops: true })}>Show all stops for a manual correction</button></p>}
+    </div>;
   }
 
   return <dialog
@@ -292,9 +315,11 @@ export default function UploadModal({ events, version, tripId, start, end, initi
             ? { ...attachedStop, date: stayDates.start, checkoutDate: stayDates.end }
             : attachedStop;
           const checkout = checkoutStop?.checkoutDate && item.matching?.isBooking ? extractHotelCheckout(item.text, checkoutStop) : null;
-          if (item.status === "saved") return <div className="success-banner" key={item.id}>
+          if (item.status === "saved" || item.status === "skipped") return <div className="success-banner" key={item.id}>
             <CheckCircle2 size={22} />
-            <span><strong>{item.file.name}</strong><br />Original saved. {attachedStop ? `Attached to ${attachedStop.title}.` : "Your document is ready to open."}</span>
+            <span><strong>{item.file.name}</strong><br />{item.outcome || "Original saved."} {attachedStop ? `Attached to ${attachedStop.title}.` : item.status==="saved" || item.existingDocument ? "Kept with the whole trip." : ""}
+              {item.existingDocument && <> <a href={`/api/documents/${encodeURIComponent(item.existingDocument.id)}?${new URLSearchParams({tripId})}`} target="_blank" rel="noopener noreferrer">Open existing original</a></>}
+            </span>
           </div>;
           return <section key={item.id} className={batch ? "upload-file-card" : "upload-file-single"} aria-label={`Upload ${item.file.name}`}>
             <div className="upload-file-heading">
@@ -310,24 +335,33 @@ export default function UploadModal({ events, version, tripId, start, end, initi
             </div>}
             {item.status !== "reading" && item.matching && !item.matching.autoMatchId && item.matching.candidates.length > 0 && <div className="booking-candidates">
               <strong>Choose the matching stop</strong>
-              <p>These entries share details with your document. Select the one this booking belongs to.</p>
+              <p>Review the evidence below, then select the stop this document belongs to.</p>
               {item.matching.candidates.map((candidate) => {
                 const stop = events.find((event) => event.id === candidate.eventId);
-                return stop ? <button key={stop.id} type="button" disabled={busy} aria-pressed={item.eventId === stop.id} onClick={() => updateFile(item.id, { eventId: stop.id, manualAttachment: true, useCheckout: true, useStayDates: true })}>
-                  <span><strong>{stop.title}</strong><small>{dateLabel(stop.date)} · {stop.location}</small></span><ChevronRight size={17} />
+                return stop ? <button key={stop.id} type="button" disabled={busy} aria-pressed={item.eventId === stop.id} onClick={() => updateFile(item.id, { eventId: stop.id, manualAttachment: true, useCheckout: true, useStayDates: true,conflicts:[],reviewedDocumentIds:[],...(item.status==="review" ? {status:"ready"} : {}) })}>
+                  <span><strong>{stop.title}</strong><small>{dateLabel(stop.date)} · {stop.location}</small><small>{candidate.reasons.join(" · ")}</small></span><ChevronRight size={17} />
                 </button> : null;
               })}
             </div>}
             {item.status !== "reading" && item.matching?.isBooking && !item.matching.candidates.length && <p className="matching-note">No matching stop found. Choose one below or keep the booking with the whole trip.</p>}
+            {item.status !== "reading" && item.matching?.notice && <p className="matching-note">{item.matching.notice}</p>}
             {item.readNotice && <p className="matching-note">{item.readNotice}</p>}
+            {item.status==="review" && <div className="booking-candidates upload-document-review" role="group" aria-label={`Review possible conflict for ${item.file.name}`}>
+              <strong>Another document is already attached to this booking — review before adding</strong>
+              <p>This file is different. It may be another passenger’s ticket, a boarding pass, or a changed booking. Open the existing originals to compare.</p>
+              <ul>{item.conflicts.map(document=><li key={document.id}><a href={`/api/documents/${encodeURIComponent(document.id)}?${new URLSearchParams({tripId})}`} target="_blank" rel="noopener noreferrer">{document.name}</a></li>)}</ul>
+              <p>Keeping both saves the extra original. Your existing booking dates and times stay unchanged; edit the stop separately if they need correcting.</p>
+              <button type="button" disabled={busy} onClick={()=>updateFile(item.id,{status:"skipped",outcome:"New file skipped. Existing originals kept.",error:""})}>Keep existing / skip new</button>
+              <button type="button" disabled={busy} onClick={()=>{updateFile(item.id,{status:"ready",reviewedDocumentIds:item.conflicts.map(document=>document.id),useCheckout:false,useStayDates:false});void upload();}}>Keep both originals</button>
+            </div>}
             {item.status !== "invalid" && attachmentSelect(item)}
-            {stayDates && item.status !== "reading" && <div className="checkout-import">
+            {stayDates && item.status !== "reading" && item.status!=="review" && !item.reviewedDocumentIds.length && <div className="checkout-import">
               <label><input type="checkbox" checked={item.useStayDates} disabled={busy} onChange={(event) => updateFile(item.id, { useStayDates: event.target.checked })} /><span>Save stay dates <strong>{dateLabel(stayDates.start, { month: "short", day: "numeric", year: "numeric" })} – {dateLabel(stayDates.end, { month: "short", day: "numeric", year: "numeric" })}</strong> with this hotel</span></label>
               <p>From this booking: “{stayDates.evidence}”</p>
               {attachedStop && (attachedStop.date !== stayDates.start || (attachedStop.checkoutDate && attachedStop.checkoutDate !== stayDates.end)) && <p>This replaces the saved stay dates: {dateLabel(attachedStop.date, { month: "short", day: "numeric", year: "numeric" })}{attachedStop.checkoutDate ? ` – ${dateLabel(attachedStop.checkoutDate, { month: "short", day: "numeric", year: "numeric" })}` : " (checkout date missing)"}.</p>}
               <small>The same booking will be available throughout this stay, including checkout day.</small>
             </div>}
-            {checkout && item.status !== "reading" && <div className="checkout-import">
+            {checkout && item.status !== "reading" && item.status!=="review" && !item.reviewedDocumentIds.length && <div className="checkout-import">
               <label><input type="checkbox" checked={item.useCheckout} disabled={busy} onChange={(event) => updateFile(item.id, { useCheckout: event.target.checked })} /><span>Save checkout at <strong>{timeLabel(checkout.time)}</strong> with this stay</span></label>
               <p>From this booking: “{checkout.evidence}”</p>
               {attachedStop?.checkout && attachedStop.checkout.time !== checkout.time && <p>This replaces the saved checkout time of {timeLabel(attachedStop.checkout.time)}.</p>}
@@ -341,6 +375,7 @@ export default function UploadModal({ events, version, tripId, start, end, initi
 
       {!complete && <div className="info-note"><LockKeyhole size={17} /><span>Only people with access to your private trip can open these files. Originals are kept in your private document collection.</span></div>}
       {(failedCount > 0 || invalidCount > 0) && <p className="matching-note" role="status">{failedCount + invalidCount} file{failedCount + invalidCount === 1 ? " was" : "s were"} not saved. {savedCount ? `${savedCount} saved file${savedCount === 1 ? " is" : "s are"} safe and won’t be sent again. ` : ""}{invalidCount ? "Remove unsupported or oversized files to finish this batch. " : ""}{failedCount ? "You can retry failed uploads." : ""}</p>}
+      {reviewCount>0 && <p className="matching-note" role="status">{reviewCount} document{reviewCount===1 ? " needs" : "s need"} your choice before being saved. Existing originals are safe.</p>}
 
       {proposals.length > 0 && <>
         <h3>Review extracted day notes</h3>
@@ -363,7 +398,7 @@ export default function UploadModal({ events, version, tripId, start, end, initi
       </details>)}
       {error && <p className="error" role="alert">{error}</p>}
       <footer className="upload-batch-footer">
-        {savedCount > 0 && <button type="button" className="secondary" disabled={busy} onClick={close}>Done</button>}
+        {savedCount + skippedCount > 0 && <button type="button" className="secondary" disabled={busy} onClick={close}>Done</button>}
         {!complete && <button type="button" disabled={!pendingCount || busy || reading} className="primary" onClick={() => void upload()}>
           {busy ? <><Loader2 className="spin" size={16} />Saving…</> : <>{saveLabel}<ArrowRight size={17} /></>}
         </button>}

@@ -14,6 +14,8 @@ export type Stop = {
   title: string;
   type: "flight" | "stay" | "activity" | "drive";
   status: "reported" | "planned" | "optional";
+  /** Only set when a non-flight stop has a real departure, entry, or appointment deadline. */
+  fixedTime?: boolean;
   location: string;
   notes: string;
   lat?: number;
@@ -65,6 +67,19 @@ export function timeLabel(time: string) {
   const [h, m] = time.split(":").map(Number);
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
+export const needsBookingTime = (stop: Stop) => {
+  if (stop.type === "flight") return true;
+  if (stop.type !== "activity" && stop.type !== "drive") return false;
+  if (stop.fixedTime !== undefined) return stop.fixedTime;
+  const description = `${stop.title}. ${stop.notes}`;
+  const departure = /\b(?:boat|ferry|sailing|tour)\s+(?:departs?|leaves?)\b/i.test(description);
+  const entry = /\b(?:timed|reserved) entry (?:required|at|for)\b/i.test(description)
+    && !/\b(?:no|not|without)\s+(?:timed|reserved) entry\b/i.test(description);
+  return departure || entry;
+};
+
+export const stopTimeLabel = (stop: Stop) =>
+  stop.time ? timeLabel(stop.time) : needsBookingTime(stop) ? "Check booking time" : "Flexible timing";
 export function phase(stop: Stop, now = new Date()) {
   const zone = stop.zone || "America/Los_Angeles";
   const day = localDate(now, zone);
@@ -105,13 +120,13 @@ export function nextScheduledStop(stops: Stop[], now = new Date()) {
 }
 export const missingDetails = (trip: Trip, docs: Document[]) =>
   trip.events.flatMap((e) => [
-    ...(!e.time
+    ...(!e.time && needsBookingTime(e)
       ? [
           {
             id: e.id + "time",
             eventId: e.id,
-            title: `Set a time for ${e.title}`,
-            detail: dateLabel(e.date),
+            title: `Check the ${e.type === "flight" ? "flight departure" : "ticket or booking"} time for ${e.title}`,
+            detail: `${dateLabel(e.date)} · Add the time shown on your confirmation`,
           },
         ]
       : []),

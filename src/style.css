@@ -1430,6 +1430,19 @@ label .muted {
   font-size: 10px;
   font-weight: 400;
 }
+.fixed-time-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+.fixed-time-choice input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  margin: 0;
+  padding: 0;
+  accent-color: #294f43;
+}
 .editor,
 .upload-body,
 .detail-body {

@@ -46,6 +46,8 @@ import {
   timeLabel,
   nextScheduledStop,
   missingDetails,
+  needsBookingTime,
+  stopTimeLabel,
   type Stop,
   type Trip,
   type Document,
@@ -187,7 +189,7 @@ function Editor({
             />
           </label>
           <label>
-            Local time <span className="muted">(optional)</span>
+            Local time <span className="muted">{needsBookingTime(value) ? "(from ticket or booking)" : "(optional)"}</span>
             <input
               type="time"
               value={value.time}
@@ -252,6 +254,16 @@ function Editor({
             </select>
           </label>
         </div>
+        {(value.type === "activity" || value.type === "drive") && (
+          <label className="fixed-time-choice">
+            <input
+              type="checkbox"
+              checked={needsBookingTime(value)}
+              onChange={(e) => setValue((s) => ({ ...s, fixedTime: e.target.checked }))}
+            />
+            This stop has a fixed departure, entry, or appointment time
+          </label>
+        )}
         <label>
           Place or address
           <input
@@ -847,7 +859,7 @@ export default function App({ user }: { user: User }) {
                               <Icon size={18} />
                             </span>
                             <span className="stop-time">
-                              {checkingOut ? "Checkout by " : ""}{timeLabel(displayTime)}
+                              {checkingOut ? "Checkout by " : ""}{displayTime ? timeLabel(displayTime) : stopTimeLabel(stop)}
                               {displayTime && (
                                 <small>
                                   {stop.zone === "America/Chicago"
@@ -994,10 +1006,10 @@ export default function App({ user }: { user: User }) {
                         {isCalifornia && dayIndex === 3
                           ? "Today includes two long drives plus Death Valley. Confirm road conditions and leave room for daylight."
                           : isCalifornia && dayIndex === 4
-                            ? "A full Joshua Tree morning and a drive to San Diego. Set departure times before filling every stop."
+                            ? "Leave enough time for the drive to San Diego; sightseeing stops can stay flexible."
                             : isCalifornia && dayIndex === 2
-                              ? "Park hours change by date. Check the official calendar, then add your arrival time and tickets."
-                              : "Your plans are coming together. Add the missing times and confirmations so travel day feels effortless."}
+                              ? "Park hours change by date. Check the official calendar and keep your admission tickets handy."
+                              : "Your plans are coming together. Check travel deadlines and confirmations before you go."}
                       </p>
                       <button
                         className="text-btn"
@@ -1264,7 +1276,7 @@ export default function App({ user }: { user: User }) {
                 {statusLabel[detail.status]}
               </span>
               <span>
-                {dateLabel(detail.date)} · {detailCheckoutStay ? "Checkout by " : ""}{timeLabel(detailTime)}
+                {dateLabel(detail.date)} · {detailCheckoutStay ? "Checkout by " : ""}{detailTime ? timeLabel(detailTime) : stopTimeLabel(detail)}
                 {detailTime
                   ? detail.zone === "America/Chicago"
                     ? " CT"

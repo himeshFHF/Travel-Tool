@@ -53,15 +53,24 @@
   color: #6a805a;
 }
 .upload-file-card > label,
-.upload-file-single > label {
+.upload-file-single > label,
+.upload-attachment-selector > label {
   display: flex;
   flex-direction: column;
   gap: 8px;
   font-size: 11px;
 }
 .upload-file-card > label select,
-.upload-file-single > label select {
+.upload-file-single > label select,
+.upload-attachment-selector select {
   width: 100%;
+}
+.upload-document-review {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.upload-document-review ul {
+  padding-left: 18px;
 }
 .upload-batch-footer {
   flex-wrap: wrap;

@@ -110,7 +110,7 @@ test("documents belong only to the selected trip and links cannot cross trip bou
   }finally{w.close();}
 });
 
-test("hotel checkout saves and sequential upload versions are scoped to the selected trip",async()=>{
+test("hotel checkout and duplicate uploads are scoped to the selected trip",async()=>{
   const w=workspace();try {
     const california=await w.read();
     await w.call("/trips",jsonBody(input));
@@ -126,16 +126,18 @@ test("hotel checkout saves and sequential upload versions are scoped to the sele
     assert.equal(saved.tripVersion,before.version+1);
     assert.equal((await w.read(NEW_ID)).trip.events[0].checkout?.documentId,saved.id);
     assert.equal((await w.read(NEW_ID)).trip.events[0].checkout?.time,"10:00");
-    assert.equal((await w.call(`/documents?tripId=${NEW_ID}`,{method:"POST",body:form})).status,409);
+    const duplicate=await w.call(`/documents?tripId=${NEW_ID}`,{method:"POST",body:form});
+    assert.equal(duplicate.status,200);assert.equal((await duplicate.json() as any).duplicate,true);
     assert.equal(w.objects.size,1);
     form.set("version",String(saved.tripVersion));form.set("checkoutTime","11:00");form.set("checkoutEvidence","Check-out: 11 AM");
     const next:any=await (await w.call(`/documents?tripId=${NEW_ID}`,{method:"POST",body:form})).json();
-    assert.equal(next.tripVersion,saved.tripVersion+1);
-    assert.equal((await w.read(NEW_ID)).trip.events[0].checkout?.time,"11:00");
+    assert.equal(next.tripVersion,saved.tripVersion);
+    assert.equal(next.duplicate,true);
+    assert.equal((await w.read(NEW_ID)).trip.events[0].checkout?.time,"10:00");
     assert.deepEqual(await w.read(),california);
     const collection:any=await (await w.call("/trips")).json();
     assert.equal(collection.trips.find((trip:any)=>trip.id===NEW_ID).stopCount,1);
-    assert.equal(collection.trips.find((trip:any)=>trip.id===NEW_ID).documentCount,2);
+    assert.equal(collection.trips.find((trip:any)=>trip.id===NEW_ID).documentCount,1);
   }finally{w.close();}
 });
 

@@ -71,10 +71,18 @@ test("hotel document and checkout time save together without overwriting concurr
     assert.equal(hotel.checkout.time,"12:00");assert.equal(hotel.checkout.source,"booking");assert.equal(hotel.checkout.documentId,document.id);
     assert.equal(after.version,before.version+1);
     assert.equal(after.trip.events.length,before.trip.events.length);
-    assert.equal((await w.call("/documents",{method:"POST",body:form})).status,409);
+    const duplicate=await w.call("/documents",{method:"POST",body:form});
+    assert.equal(duplicate.status,200);assert.equal((await duplicate.json() as any).duplicate,true);
     const unchanged:any=await (await w.call("/trip")).json();
     assert.equal(unchanged.documents.length,1);
     assert.equal(unchanged.version,after.version);
+    assert.deepEqual(unchanged.trip,after.trip);
+    // A different original for a different stay has no document conflict to mask
+    // the stale version guard, so it still cannot overwrite concurrent edits.
+    const stale=new FormData();stale.set("file",new File(["Fairfield checkout confirmation"],"fairfield.txt"));
+    stale.set("eventId","fairfield");stale.set("checkoutTime","11:00");stale.set("checkoutEvidence","Check-out at 11 AM");stale.set("version",String(before.version));
+    const staleResponse=await w.call("/documents",{method:"POST",body:stale});assert.equal(staleResponse.status,409);
+    assert.match((await staleResponse.json() as any).error,/trip changed/);
     form.set("version",String(after.version));form.set("eventId","flight-out");
     assert.equal((await w.call("/documents",{method:"POST",body:form})).status,400);
     form.set("eventId","burbank");form.set("checkoutTime","28:00");

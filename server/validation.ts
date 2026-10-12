@@ -6,6 +6,7 @@ export const stopSchema = z.object({
   title: z.string().trim().min(1).max(200),
   type: z.enum(["flight", "stay", "activity", "drive"]),
   status: z.enum(["reported", "planned", "optional"]),
+  fixedTime: z.boolean().optional(),
   location: z.string().max(300),
   notes: z.string().max(10000),
   lat: z.number().min(-90).max(90).optional(),

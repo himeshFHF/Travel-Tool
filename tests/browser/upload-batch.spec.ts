@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { seed } from "../../src/seed";
 
-test("batch uploads keep separate matches, retry only failures and advance hotel versions", async ({ page }) => {
+test("batch uploads keep separate matches, retry only failures and review another booking original", async ({ page }) => {
   await page.goto("/signin-with-chatgpt?return_to=%2F");
   const tripId = crypto.randomUUID();
   const title = `Upload verification ${Date.now()}`;
@@ -37,6 +37,10 @@ test("batch uploads keep separate matches, retry only failures and advance hotel
       { name: `${prefix}.exe`, mimeType: "application/octet-stream", buffer: Buffer.from("unsupported file") },
     ]);
     await expect(page.getByLabel(`Attach ${flightName} to a stop`)).toHaveValue("flight-out");
+    await expect(page.getByLabel(`Attach ${flightName} to a stop`).locator('option[value="burbank"]')).toHaveCount(0);
+    const flightCard = page.getByRole("region", { name: `Upload ${flightName}`, exact: true });
+    await flightCard.getByRole("button", { name: "Show all stops for a manual correction" }).click();
+    await expect(page.getByLabel(`Attach ${flightName} to a stop`).locator('option[value="burbank"]')).toHaveCount(1);
     await expect(page.getByLabel(`Attach ${hotelName} to a stop`)).toHaveValue("burbank");
     await expect(page.getByText("Unsupported file. Use PDF, TXT, EML, PNG, JPG or WebP.")).toBeVisible();
     await page.getByRole("button", { name: "Save 2 documents", exact: true }).click();
@@ -68,13 +72,19 @@ test("batch uploads keep separate matches, retry only failures and advance hotel
     await expect(page.getByLabel(`Attach ${prefix}-burbank2.txt to a stop`)).toHaveValue("burbank");
     await expect(page.getByLabel(`Attach ${prefix}-fairfield.txt to a stop`)).toHaveValue("fairfield");
     await page.getByRole("button", { name: "Save 2 documents", exact: true }).click();
+    await expect(page.getByRole("group",{name:`Review possible conflict for ${prefix}-burbank2.txt`})).toBeVisible();
+    await page.getByRole("button",{name:"Keep both originals",exact:true}).click();
     await expect(page.getByRole("heading", { name: "Documents tucked away" })).toBeVisible();
     const afterHotels = await (await page.request.get(tripApi)).json();
-    expect(afterHotels.version).toBe(afterRetry.version + 2);
-    expect(afterHotels.trip.events.find((stop: { id: string }) => stop.id === "burbank").checkout.time).toBe("10:30");
+    expect(afterHotels.version).toBe(afterRetry.version + 1);
+    expect(afterHotels.trip.events.find((stop: { id: string }) => stop.id === "burbank").checkout.time).toBe("10:15");
     expect(afterHotels.trip.events.find((stop: { id: string }) => stop.id === "fairfield").checkout.time).toBe("11:30");
     await page.getByRole("button", { name: "Done", exact: true }).click();
 
+    // Remove only this test's hotel originals so the next case independently tests a first booking.
+    for(const document of afterHotels.documents.filter((document:{eventId:string})=>document.eventId==="burbank")) {
+      expect((await page.request.delete(`/api/documents/${document.id}?tripId=${tripId}`)).ok()).toBe(true);
+    }
     // Recover a missing checkout date from the booking, then share one original across the stay.
     const withoutEnd = { ...afterHotels.trip, events: afterHotels.trip.events.map((stop: { id: string; checkoutDate?: string; checkout?: unknown }) => {
       if (stop.id !== "burbank") return stop;
@@ -127,13 +137,15 @@ test("batch uploads keep separate matches, retry only failures and advance hotel
     const fullSizeLink = page.getByRole("link", { name: `Open ${imageName} at full size` });
     await expect(fullSizeLink).toHaveAttribute("href", /^blob:/);
     await expect(fullSizeLink).toHaveAttribute("rel", "noopener noreferrer");
-    await expect(page.getByText("We couldn’t read booking details from this file.", { exact: false })).toBeVisible();
+    await expect(page.getByText("Images and scanned PDFs need a manual choice", { exact: false })).toBeVisible();
     await page.getByLabel("Attach to a stop", { exact: true }).selectOption("flight-out");
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByRole("img", { name: `Preview of ${imageName}` })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath("upload-image-mobile.png") });
     await page.getByRole("button", { name: "Save document", exact: true }).click();
+    await expect(page.getByRole("group",{name:`Review possible conflict for ${imageName}`})).toBeVisible();
+    await page.getByRole("button",{name:"Keep both originals",exact:true}).click();
     await expect(page.getByRole("heading", { name: "Document tucked away" })).toBeVisible();
     const afterImage = await (await page.request.get(tripApi)).json();
     const imageDoc = afterImage.documents.find((doc: { name: string }) => doc.name === imageName);
