@@ -12,7 +12,7 @@ test("only real departure times become reminders, and an override survives reloa
 
   await page.getByRole("button", { name: "Add a stop", exact: true }).first().click();
   await page.getByLabel("Stop title", { exact: true }).fill("Pick up the rental car");
-  await page.getByLabel(/^Type\b/).selectOption("drive");
+  await page.getByRole("combobox", { name: "Type", exact: true }).selectOption("drive");
   await page.getByRole("button", { name: "Save stop", exact: true }).click();
 
   await page.getByRole("button", { name: "Add a stop", exact: true }).first().click();
